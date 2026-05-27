@@ -2,8 +2,6 @@ import { Database, Layers3, ShieldAlert, TrendingDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { Dashboard } from "../types";
 import { money, pct, titleCase } from "../lib/format";
-import { riskRadarMetrics } from "../lib/viewModels";
-import { RiskRadar } from "../components/visuals/RiskRadar";
 import { Badge, EmptyState, SignalPanel } from "../components/ui/Primitives";
 import { SelectedPolicyCard, SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
 import { RiskBlockerCard, deriveRiskBlockers } from "../components/risk/RiskBlockerCard";
@@ -34,7 +32,6 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
     ...packet.recommendedPriority.blockedActions.map((message, index) => ({ id: `packet-${index}`, symbol: "Gate", reason: message, risk_flags: ["Hard risk gate active."] })),
     ...dashboard.recent_recommendations.filter((item) => item.status === "fail" || item.action === "AVOID")
   ].slice(0, 4);
-  const radarMetrics = riskRadarMetrics(dashboard);
   const selectedPolicy = pickSelectedPolicy(dashboard);
   const blockers = deriveRiskBlockers(packet, selectedPolicy);
   const maxSingleStock = selectedPolicy?.singleStock?.hardBuyBlock
@@ -65,21 +62,21 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
       icon: Layers3,
       label: "Sector pressure",
       value: sectors[0] ? `${sectors[0][0]} ${pct(sectors[0][1])}` : "Waiting",
-      body: sectorBreaches[0]?.message ?? (unknownWeight > 0 ? `${pct(unknownWeight)} is in Unknown because Signal refuses to guess sector metadata.` : "Sector/theme caps use enriched metadata where available."),
+      body: sectorBreaches[0]?.message ?? (unknownWeight > 0 ? `${pct(unknownWeight)} is intentionally labeled Unknown.` : "Sector caps use enriched metadata where available."),
       tone: sectorBreaches.length ? "danger" : unknownWeight > 0 ? "attention" : hasHoldings ? "good" : "attention"
     },
     {
       icon: Database,
       label: "Data reliability",
       value: titleCase(dashboard.data_freshness.provider_mode),
-      body: dataBreaches[0]?.message ?? (dashboard.data_freshness.provider_mode === "live" ? `${dashboard.data_freshness.live_price_symbols} live/recent symbols are priced.` : "Sample or missing data lowers confidence until live market data is connected."),
+      body: dataBreaches[0]?.message ?? (dashboard.data_freshness.provider_mode === "live" ? `${dashboard.data_freshness.live_price_symbols} symbols priced.` : "Sample or missing data lowers confidence."),
       tone: dataBreaches.length ? "attention" : dashboard.data_freshness.provider_mode === "live" ? "good" : "attention"
     },
     {
       icon: TrendingDown,
       label: "Drawdown / liquidity",
       value: dashboard.quant_diagnostics.status === "healthy" ? "Checked" : "Review",
-      body: dashboard.quant_diagnostics.checks.find((check) => check.name.toLowerCase().includes("risk"))?.detail ?? "Volatility, drawdown, and liquidity gates are applied before an idea can become eligible.",
+      body: "Eligibility uses volatility, drawdown, and liquidity gates.",
       tone: dashboard.quant_diagnostics.status === "healthy" ? "good" : "attention"
     }
   ];
@@ -122,19 +119,6 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         ))}
       </section>
 
-      <details className="risk-radar-disclosure">
-        <summary>
-          <span>Risk radar</span>
-          <Badge tone={issueCount ? "watch" : "live"}>{issueCount ? `${issueCount} issues` : "Balanced"}</Badge>
-        </summary>
-        <SignalPanel className="risk-radar-panel" testId="risk-radar-panel">
-          <RiskRadar metrics={radarMetrics} />
-          <p className="visual-explainer">
-            Six factors condensed from the latest risk packet: concentration, sector pressure, data, liquidity, drawdown, and crowding.
-          </p>
-        </SignalPanel>
-      </details>
-
       {selectedPolicy && (
         <details className="risk-policy-disclosure">
           <summary>
@@ -163,80 +147,90 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         </details>
       )}
 
-      <section className="risk-workbench">
-        <SignalPanel className="exposure-stack-panel">
-          <div className="panel-label-row">
-            <span>Top exposures</span>
-            <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "fail" : topPositions.length ? "live" : "watch"}>{topPositions.length ? `${topPositions.length} holdings` : "Waiting"}</Badge>
-          </div>
-          <div className="exposure-stack">
-            {topPositions.length ? (
-              topPositions.map((position) => (
-                <div key={position.symbol} className={position.weight > maxSingleStock ? "over" : ""}>
-                  <div>
-                    <strong>{position.symbol}</strong>
-                    <span>
-                      {money(position.market_value)} · {position.sector}
-                      {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over ${pct(maxSingleStock)} cap` : ""}
-                    </span>
+      <details className="risk-detail-disclosure">
+        <summary>
+          <span>Exposure details</span>
+          <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "watch" : "neutral"}>
+            {topPositions.length ? `${topPositions.length} holdings` : "Waiting"}
+          </Badge>
+        </summary>
+        <section className="risk-workbench">
+          <SignalPanel className="exposure-stack-panel">
+            <div className="panel-label-row">
+              <span>Top exposures</span>
+              <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "fail" : topPositions.length ? "live" : "watch"}>{topPositions.length ? `${topPositions.length} holdings` : "Waiting"}</Badge>
+            </div>
+            <div className="exposure-stack">
+              {topPositions.length ? (
+                topPositions.map((position) => (
+                  <div key={position.symbol} className={position.weight > maxSingleStock ? "over" : ""}>
+                    <div>
+                      <strong>{position.symbol}</strong>
+                      <span>
+                        {money(position.market_value)} · {position.sector}
+                        {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over ${pct(maxSingleStock)} cap` : ""}
+                      </span>
+                    </div>
+                    <i style={{ "--weight": Math.min(100, position.weight * 100) } as CSSProperties} />
+                    <b>{pct(position.weight)}</b>
                   </div>
-                  <i style={{ "--weight": Math.min(100, position.weight * 100) } as CSSProperties} />
-                  <b>{pct(position.weight)}</b>
-                </div>
-              ))
-            ) : (
-              <EmptyState title="No concentration data" body="Import holdings to see position weight." />
-            )}
-          </div>
-        </SignalPanel>
+                ))
+              ) : (
+                <EmptyState title="No concentration data" body="Import holdings to see position weight." />
+              )}
+            </div>
+          </SignalPanel>
 
-        <SignalPanel className="sector-stack-panel">
-          <div className="panel-label-row">
-            <span>Sector and theme pressure</span>
-            <Badge tone={sectors[0]?.[1] > 0.3 ? "fail" : sectors.length ? "live" : "watch"}>{sectors.length ? `${sectors.length} groups` : "Waiting"}</Badge>
-          </div>
-          <div className="sector-stack">
-            {sectors.length ? (
-              sectors.slice(0, 7).map(([sector, weight]) => (
-                <div key={sector} className={sector === "Unknown" || sector === "Unclassified ETF" ? "unknown" : ""}>
-                  <span>{sector}</span>
-                  <i style={{ "--weight": Math.min(100, weight * 100) } as CSSProperties} />
-                  <strong>{pct(weight)}</strong>
-                </div>
-              ))
-            ) : (
-              <EmptyState title="No sector map yet" body="Import holdings to see theme pressure." />
-            )}
-          </div>
-          {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal Prime labels missing metadata instead of inventing sector exposure.</p>}
-        </SignalPanel>
-      </section>
+          <SignalPanel className="sector-stack-panel">
+            <div className="panel-label-row">
+              <span>Sector and theme pressure</span>
+              <Badge tone={sectors[0]?.[1] > 0.3 ? "fail" : sectors.length ? "live" : "watch"}>{sectors.length ? `${sectors.length} groups` : "Waiting"}</Badge>
+            </div>
+            <div className="sector-stack">
+              {sectors.length ? (
+                sectors.slice(0, 7).map(([sector, weight]) => (
+                  <div key={sector} className={sector === "Unknown" || sector === "Unclassified ETF" ? "unknown" : ""}>
+                    <span>{sector}</span>
+                    <i style={{ "--weight": Math.min(100, weight * 100) } as CSSProperties} />
+                    <strong>{pct(weight)}</strong>
+                  </div>
+                ))
+              ) : (
+                <EmptyState title="No sector map yet" body="Import holdings to see theme pressure." />
+              )}
+            </div>
+            {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal Prime labels missing metadata instead of inventing sector exposure.</p>}
+          </SignalPanel>
+        </section>
+      </details>
 
-      <SignalPanel className="risk-blockers-panel" testId="risk-blockers-panel">
-        <div className="panel-label-row">
+      <details className="risk-blockers-disclosure">
+        <summary>
           <span>Blockers · what clears each one</span>
           <Badge tone={blockers.length ? "watch" : "pass"}>
             {blockers.length ? `${blockers.length} active` : "All clear"}
           </Badge>
-        </div>
-        {blockers.length ? (
-          <div className="risk-blocker-grid">
-            {blockers.slice(0, 8).map((blocker) => (
-              <RiskBlockerCard key={blocker.id} blocker={blocker} onAsk={onAsk} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            title="No active blockers"
-            body="When a risk or data gate trips, the deterministic engine names the exact condition that would clear it."
-          />
-        )}
-        {blocked.length > 0 && (
-          <p className="visual-explainer">
-            Signal also has {blocked.length} candidate ideas marked not eligible right now (insufficient history, liquidity, or risk gates). They surface again automatically when their conditions clear.
-          </p>
-        )}
-      </SignalPanel>
+        </summary>
+        <SignalPanel className="risk-blockers-panel" testId="risk-blockers-panel">
+          {blockers.length ? (
+            <div className="risk-blocker-grid">
+              {blockers.slice(0, 8).map((blocker) => (
+                <RiskBlockerCard key={blocker.id} blocker={blocker} onAsk={onAsk} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No active blockers"
+              body="When a risk or data gate trips, the deterministic engine names the exact condition that would clear it."
+            />
+          )}
+          {blocked.length > 0 && (
+            <p className="visual-explainer">
+              {blocked.length} candidate ideas are not eligible right now. They surface again when data and risk gates clear.
+            </p>
+          )}
+        </SignalPanel>
+      </details>
 
     </section>
   );

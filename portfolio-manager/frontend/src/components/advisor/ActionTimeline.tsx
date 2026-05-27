@@ -1,6 +1,6 @@
-import { CheckCircle2, Circle, Clock3, Lock, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Clock3, Lock, ShieldAlert } from "lucide-react";
 import type { Dashboard } from "../../types";
-import { money, pct, shortDateTime, titleCase } from "../../lib/format";
+import { money, pct, titleCase } from "../../lib/format";
 import { Badge } from "../ui/Primitives";
 
 type TimelineStep = {
@@ -69,54 +69,47 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
     status: allowed ? "allowed" : "blocked",
   });
 
-  if (addCandidates.length) {
+  if (!steps.length && addCandidates.length) {
     const tranches = addCandidates[0]?.addPlan?.trancheCount ?? 4;
     steps.push({
       id: "stage",
       title: "Stage entries",
       detail: `${addCandidates.length} candidate${addCandidates.length === 1 ? "" : "s"} · ${tranches} tranches.`,
-      status: blocked ? "blocked" : "allowed",
+      status: "allowed",
     });
   }
 
-  steps.push({
-    id: "review",
-    title: "Next review",
-    detail: dashboard.scheduler.next_run_at
-      ? shortDateTime(dashboard.scheduler.next_run_at)
-      : "Schedule a daily review to keep the receipt current.",
-    status: "waiting",
-  });
-
-  return steps;
+  return steps.slice(0, 3);
 }
 
 export function ActionTimeline({ dashboard }: { dashboard: Dashboard }) {
   const steps = buildTimeline(dashboard);
 
   return (
-    <div className="action-timeline" data-testid="action-timeline">
-      {steps.map((step, index) => {
-        const Icon = stepIcon(step.status);
-        return (
-          <article key={step.id} className={`action-timeline-step status-${step.status}`}>
-            <div className="action-timeline-marker">
-              <span>{index + 1}</span>
-              <Icon size={16} />
-            </div>
-            <div className="action-timeline-body">
-              <div className="action-timeline-head">
-                <strong>{step.title}</strong>
-                <Badge tone={step.status === "required" ? "fail" : step.status === "allowed" || step.status === "complete" ? "live" : step.status === "blocked" ? "fail" : "watch"}>
-                  {titleCase(step.status.replace(/_/g, " "))}
-                </Badge>
+    <div className="action-timeline-wrap" data-testid="action-timeline">
+      <div className="action-timeline">
+        {steps.map((step, index) => {
+          const Icon = stepIcon(step.status);
+          return (
+            <article key={step.id} className={`action-timeline-step status-${step.status}`}>
+              <div className="action-timeline-marker">
+                <span>{index + 1}</span>
+                <Icon size={16} />
               </div>
-              <p>{step.detail}</p>
-              {step.math && <code>{step.math}</code>}
-            </div>
-          </article>
-        );
-      })}
+              <div className="action-timeline-body">
+                <div className="action-timeline-head">
+                  <strong>{step.title}</strong>
+                  <Badge tone={step.status === "required" ? "fail" : step.status === "allowed" || step.status === "complete" ? "live" : step.status === "blocked" ? "fail" : "watch"}>
+                    {titleCase(step.status.replace(/_/g, " "))}
+                  </Badge>
+                </div>
+                <p>{step.detail}</p>
+                {step.math && <code>{step.math}</code>}
+              </div>
+            </article>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -2436,9 +2436,14 @@ a svg {
 }
 
 /* Action timeline */
+.action-timeline-wrap {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .action-timeline {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
 }
 

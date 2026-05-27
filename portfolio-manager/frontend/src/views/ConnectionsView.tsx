@@ -276,9 +276,6 @@ export function ConnectionsView({
                       <CommandButton icon={CheckCircle2} variant="secondary" disabled={!provider.configured || busy} onClick={() => runTest(provider)}>
                         Test
                       </CommandButton>
-                      <CommandButton icon={Trash2} variant="danger" disabled={!provider.configured || busy} onClick={() => remove(provider)}>
-                        Remove
-                      </CommandButton>
                     </div>
                   </article>
                 );
@@ -286,11 +283,11 @@ export function ConnectionsView({
               </div>
             </>
           );
-          return group.label === "Optional" ? (
+          return group.label !== "Required" ? (
             <SignalPanel className="connection-group" key={group.label}>
               <details className="optional-provider-disclosure">
                 <summary>
-                  <span>Optional providers</span>
+                  <span>{group.label} providers</span>
                   <Badge tone="neutral">{group.providers.length}</Badge>
                 </summary>
                 {content}
@@ -469,6 +466,11 @@ export function ConnectionsView({
               <CommandButton icon={CheckCircle2} variant="secondary" disabled={busyProvider === openProvider.provider} type="button" onClick={() => save(openProvider, false)}>
                 Save without test
               </CommandButton>
+              {openProvider.configured && (
+                <CommandButton icon={Trash2} variant="danger" disabled={busyProvider === openProvider.provider} type="button" onClick={() => remove(openProvider)}>
+                  Remove saved key
+                </CommandButton>
+              )}
             </div>
           </form>
         )}

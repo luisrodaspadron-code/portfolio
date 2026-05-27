@@ -5,7 +5,6 @@ import { actionPriorityTone, recommendationLane } from "../lib/viewModels";
 import { money, pct, shortDateTime, titleCase } from "../lib/format";
 import { ActionImpactPreview } from "../components/visuals/ActionImpactPreview";
 import { ActionTimeline } from "../components/advisor/ActionTimeline";
-import { ReviewChecklist } from "../components/advisor/ReviewChecklist";
 import { DecisionReceiptCard } from "../components/advisor/DecisionReceiptCard";
 import { StaggerTimeline } from "../components/advisor/StaggerTimeline";
 import { Badge, CommandButton, DetailDrawer, EmptyState, SignalPanel } from "../components/ui/Primitives";
@@ -103,10 +102,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
     const topTrimPlan = topAction?.detail_payload?.trimPlan;
     const canonicalTrimPlan = canonicalFirst?.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"] | undefined;
     const displayTrimPlan = canonicalTrimPlan ?? topTrimPlan;
-    const addCandidates = packetCandidates.filter((item) => item.action === "ADD" || item.action === "STAGGER_ENTRY").slice(0, 4);
-    const trims = packetPositions.filter((item) => item.action === "TRIM");
-    const holds = packetPositions.filter((item) => item.action === "HOLD");
-    const waits = [...packetPositions, ...packetCandidates].filter((item) => item.action === "WAIT_FOR_DATA" || item.action === "BLOCKED_BY_RISK");
     return (
       <section className="actions-view actions-redesign screen-enter">
         <SignalPanel className="actions-hero-v2">
@@ -136,14 +131,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <ActionTimeline dashboard={dashboard} />
         </SignalPanel>
 
-        <details className="review-checklist-disclosure">
-          <summary>
-            <span>Before acting</span>
-            <Badge tone="neutral">Checklist</Badge>
-          </summary>
-          <ReviewChecklist />
-        </details>
-
         <details className="decision-receipt-drawer">
           <summary>
             <span>Decision receipt</span>
@@ -154,63 +141,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <DecisionReceiptCard dashboard={dashboard} compact />
         </details>
 
-        <details className="actions-summary-disclosure">
-          <summary>
-            <span>Portfolio action summary</span>
-            <Badge tone={trims.length ? "watch" : "live"}>{trims.length ? `${trims.length} trims` : "Stable"}</Badge>
-          </summary>
-          <SignalPanel className="actions-summary-panel">
-            <div className="actions-summary-strip">
-              <div>
-                <span>Reviewed</span>
-                <strong>{advisorDecision?.holding_decisions.length ?? packetPositions.length} holdings</strong>
-                <p>{packetCandidates.length} outside candidates compared against the portfolio.</p>
-              </div>
-              <div>
-                <span>Change pressure</span>
-                <strong>{trims.length ? `${trims.length} trim/rotate` : "No forced trim"}</strong>
-                <p>{trims[0]?.explanation ?? "Signal is not forcing a reduction unless risk or evidence changes."}</p>
-              </div>
-              <div>
-                <span>Potential adds</span>
-                <strong>{addCandidates.length ? `${addCandidates.length} staged/add` : "No adds now"}</strong>
-                <p>{addCandidates[0]?.explanation ?? "Outside ideas must beat current holdings after risk, freshness, and turnover."}</p>
-              </div>
-              <div>
-                <span>Wait list</span>
-                <strong>{waits.length} not ready</strong>
-                <p>{holds.length} holdings can stay as-is at this snapshot.</p>
-              </div>
-            </div>
-          </SignalPanel>
-        </details>
-
-        <section className="execution-grid" data-testid="action-queue">
-          <SignalPanel className="execution-plan-panel">
-            <div className="panel-label-row">
-              <span>Do next</span>
-              <Badge tone={advisorDecision?.status === "success" ? "live" : "watch"}>{titleCase(advisorDecision?.status ?? "ready")}</Badge>
-            </div>
-            <div className="execution-steps">
-              {(packet.recommendedPriority.doNext.length ? packet.recommendedPriority.doNext : advisorDecision?.execution_plan ?? []).slice(0, 2).map((item, index) => (
-                <div key={item}>
-                  <strong>{index + 1}</strong>
-                  <p>{item}</p>
-                </div>
-              ))}
-            </div>
-            {advisorDecision && advisorDecision.execution_plan.length > 2 && (
-              <details className="mini-disclosure">
-                <summary>Show the rest of the plan</summary>
-                <div className="risk-note-stack">
-                  {advisorDecision.execution_plan.slice(2).map((item) => (
-                    <div key={item}>{item}</div>
-                  ))}
-                </div>
-              </details>
-            )}
-          </SignalPanel>
-
+        <section className="execution-grid single" data-testid="action-queue">
           <SignalPanel className="decision-list-panel">
             <div className="panel-label-row">
               <span>Position decisions</span>
@@ -363,7 +294,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               {selectedDecision.detail_payload?.trimPlan && (
                 <section className="decision-receipt-card">
                   <h3>Decision receipt</h3>
-                  <p>Advisory-only. No order has been placed.</p>
                   <div className="detail-score-row">
                     <div>
                       <span>Current value</span>
@@ -412,7 +342,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               {selectedDecision.detail_payload?.addPlan && (
                 <section className="decision-receipt-card">
                   <h3>Stagger plan</h3>
-                  <p>Advisory-only. No order has been placed.</p>
                   <StaggerTimeline schedule={selectedDecision.detail_payload.addPlan.trancheSchedule} symbol={selectedDecision.symbol} />
                 </section>
               )}

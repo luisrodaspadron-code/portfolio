@@ -1434,6 +1434,10 @@
   gap: var(--space-4);
 }
 
+.execution-grid.single {
+  grid-template-columns: 1fr;
+}
+
 .risk-deck-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 0.9fr) minmax(280px, 0.78fr);
@@ -1618,7 +1622,7 @@
   background: rgba(255, 255, 255, 0.032);
   color: inherit;
   display: grid;
-  grid-template-columns: minmax(150px, 0.28fr) minmax(0, 1fr) minmax(150px, 0.26fr);
+  grid-template-columns: minmax(220px, 0.28fr) minmax(0, 1fr) minmax(150px, 0.24fr);
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-3);
@@ -1638,6 +1642,11 @@
   display: grid;
   gap: var(--space-1);
   align-content: center;
+}
+
+.execution-symbol .badge {
+  max-width: 190px;
+  justify-content: center;
 }
 
 .execution-symbol strong {
@@ -1986,10 +1995,6 @@
   padding: 0 var(--space-3);
 }
 
-.provider-actions .command-button:first-child {
-  grid-column: 1 / -1;
-}
-
 .provider-row.primary-provider {
   border-color: rgba(101, 255, 216, 0.28);
   background: rgba(101, 255, 216, 0.055);
@@ -2159,6 +2164,8 @@
 .portfolio-impact-disclosure,
 .what-changed-disclosure,
 .risk-radar-disclosure,
+.risk-detail-disclosure,
+.risk-blockers-disclosure,
 .risk-policy-disclosure,
 .advanced-router-disclosure,
 .now-run-disclosure {
@@ -2179,6 +2186,8 @@
 .portfolio-impact-disclosure summary,
 .what-changed-disclosure summary,
 .risk-radar-disclosure summary,
+.risk-detail-disclosure summary,
+.risk-blockers-disclosure summary,
 .risk-policy-disclosure summary,
 .advanced-router-disclosure summary,
 .now-run-disclosure summary {
@@ -2205,6 +2214,8 @@
 .portfolio-impact-disclosure summary::-webkit-details-marker,
 .what-changed-disclosure summary::-webkit-details-marker,
 .risk-radar-disclosure summary::-webkit-details-marker,
+.risk-detail-disclosure summary::-webkit-details-marker,
+.risk-blockers-disclosure summary::-webkit-details-marker,
 .risk-policy-disclosure summary::-webkit-details-marker,
 .advanced-router-disclosure summary::-webkit-details-marker,
 .now-run-disclosure summary::-webkit-details-marker {
@@ -2226,6 +2237,8 @@
 .portfolio-impact-disclosure .portfolio-impact-preview,
 .what-changed-disclosure .what-changed-panel,
 .risk-radar-disclosure .risk-radar-panel,
+.risk-detail-disclosure .risk-workbench,
+.risk-blockers-disclosure .risk-blockers-panel,
 .risk-policy-disclosure .selected-policy-card,
 .risk-policy-disclosure .risk-radar-panel,
 .advanced-router-disclosure .ai-router-editor,
@@ -2245,6 +2258,8 @@
 .portfolio-impact-disclosure,
 .what-changed-disclosure,
 .risk-radar-disclosure,
+.risk-detail-disclosure,
+.risk-blockers-disclosure,
 .risk-policy-disclosure,
 .advanced-router-disclosure,
 .now-run-disclosure {

@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import { BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
+import { Database, Import, ListChecks, MessageCircle } from "lucide-react";
 import type { AdvisorRunStatus, Dashboard } from "../types";
 import { money, number, pct, shortDateTime, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
 import { PortfolioImpactPreview } from "../components/visuals/PortfolioImpactPreview";
-import { DecisionMap } from "../components/visuals/DecisionMap";
 import { trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
 import { RunConsole } from "../components/advisor/RunConsole";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
@@ -219,46 +218,6 @@ export function HomeView({
           onRun={onRunAdvisor}
           onCompare={() => setCompareOpen(true)}
         />
-      </details>
-
-      <details className="now-audit-drawer">
-        <summary>
-          <span>Technical details</span>
-          <Badge tone="neutral">{dashboard.decision_packet_status.tool_count} tools</Badge>
-        </summary>
-        <SignalPanel className="decision-map-panel">
-          <div className="panel-label-row">
-            <span>Decision map</span>
-            <Badge tone="neutral">Deterministic flow</Badge>
-          </div>
-          <DecisionMap dashboard={dashboard} />
-        </SignalPanel>
-        <section className="now-trace-grid">
-          <SignalPanel className="trace-card compact">
-            <div className="trace-icon-row">
-              <ShieldCheck size={17} />
-              <span>Positions analyzed</span>
-            </div>
-            <strong>{dashboard.advisor_trace.holdings_analyzed.count} holdings</strong>
-            <p>{dashboard.advisor_trace.holdings_analyzed.top_holding ? `Largest exposure: ${dashboard.advisor_trace.holdings_analyzed.top_holding.symbol}.` : "Import holdings to turn this into a real portfolio review."}</p>
-          </SignalPanel>
-          <SignalPanel className="trace-card compact">
-            <div className="trace-icon-row">
-              <Database size={17} />
-              <span>Data used</span>
-            </div>
-            <strong>{number(dashboard.data_freshness.live_price_symbols || dashboard.data_freshness.sample_price_symbols)} priced symbols</strong>
-            <p>{dashboard.data_freshness.provider_mode === "live" ? `${titleCase(dashboard.data_freshness.preferred_price_source)} is preferred. SEC facts are used when company coverage exists.` : "Sample mode downgrades confidence until live market data is connected."}</p>
-          </SignalPanel>
-          <SignalPanel className="trace-card compact">
-            <div className="trace-icon-row">
-              <BrainCircuit size={17} />
-              <span>Decision engine</span>
-            </div>
-            <strong>{dashboard.decision_packet_status.tool_count} quant tools</strong>
-            <p>Universe, prices, factors, sizing, risk gates, macro, SEC facts, and AI review are tied to the same packet.</p>
-          </SignalPanel>
-        </section>
       </details>
 
     </section>
