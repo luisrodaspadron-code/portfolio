@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { motion } from "motion/react";
 import { Sparkles, ShieldCheck, Hourglass, Ban, Eye } from "lucide-react";
 import type { AdvisorPacketAction } from "../../types";
 import { titleCase } from "../../lib/format";
@@ -169,16 +168,13 @@ export function OpportunityLab({ candidates, onSelect }: Props) {
                 <div className="opportunity-lane-empty">No candidates in this lane.</div>
               ) : (
                 <div className="opportunity-lane-grid">
-                  {list.slice(0, 6).map((candidate, idx) => {
+                  {list.slice(0, 6).map((candidate) => {
                     const components = buildScoreComponents(candidate);
                     const score = totalScore(components);
                     return (
-                      <motion.article
+                      <article
                         key={candidate.symbol}
                         className="opportunity-card"
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.04, duration: 0.28 }}
                         onClick={onSelect ? () => onSelect(candidate) : undefined}
                         onKeyDown={(event) => {
                           if (!onSelect) return;
@@ -206,7 +202,7 @@ export function OpportunityLab({ candidates, onSelect }: Props) {
                           ) : null}
                         </div>
                         <p>{candidate.explanation}</p>
-                      </motion.article>
+                      </article>
                     );
                   })}
                 </div>

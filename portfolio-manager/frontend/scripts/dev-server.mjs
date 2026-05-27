@@ -67,11 +67,14 @@ async function serveFile(req, res) {
     const info = await stat(filePath);
     const finalPath = info.isDirectory() ? join(dist, "index.html") : filePath;
     const body = await readFile(finalPath);
-    res.writeHead(200, { "content-type": mime[extname(finalPath)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": mime[extname(finalPath)] || "application/octet-stream",
+      "cache-control": "no-store"
+    });
     res.end(body);
   } catch {
     const body = await readFile(join(dist, "index.html"));
-    res.writeHead(200, { "content-type": mime[".html"] });
+    res.writeHead(200, { "content-type": mime[".html"], "cache-control": "no-store" });
     res.end(body);
   }
 }

@@ -122,16 +122,18 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         ))}
       </section>
 
-      <SignalPanel className="risk-radar-panel" testId="risk-radar-panel">
-        <div className="panel-label-row">
+      <details className="risk-radar-disclosure">
+        <summary>
           <span>Risk radar</span>
           <Badge tone={issueCount ? "watch" : "live"}>{issueCount ? `${issueCount} issues` : "Balanced"}</Badge>
-        </div>
-        <RiskRadar metrics={radarMetrics} />
-        <p className="visual-explainer">
-          Six factors condensed from the latest risk packet: concentration, sector pressure, data, liquidity, drawdown, and crowding.
-        </p>
-      </SignalPanel>
+        </summary>
+        <SignalPanel className="risk-radar-panel" testId="risk-radar-panel">
+          <RiskRadar metrics={radarMetrics} />
+          <p className="visual-explainer">
+            Six factors condensed from the latest risk packet: concentration, sector pressure, data, liquidity, drawdown, and crowding.
+          </p>
+        </SignalPanel>
+      </details>
 
       {selectedPolicy && (
         <details className="risk-policy-disclosure">

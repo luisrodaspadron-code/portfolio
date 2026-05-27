@@ -45,6 +45,24 @@ function useLabel(provider: ConnectionProvider) {
   return provider.last_refresh ? "Used" : "Not used yet";
 }
 
+function providerPurpose(provider: ConnectionProvider, isSec: boolean) {
+  if (isSec) return "Filing fundamentals.";
+  if (provider.provider === "openai") return "AI narrative and Ask Signal.";
+  if (provider.provider === "alpaca") return "Prices and market snapshots.";
+  if (provider.provider === "fred") return "Macro regime data.";
+  if (provider.provider === "alpha_vantage") return "Market-data fallback.";
+  if (provider.provider === "polygon") return "Market-data fallback.";
+  return provider.description;
+}
+
+function providerAttentionNote(provider: ConnectionProvider, fallback: string) {
+  if (provider.latest_use_state === "format_error") return "Latest use needs attention; quant fallback remains available.";
+  if (provider.latest_use_state === "failed") return "Latest use failed. Test or update this source.";
+  if (provider.latest_use_state === "rate_limited") return "Rate limited on latest use.";
+  if (provider.latest_use_state === "not_used_yet") return "Not used in the latest review.";
+  return fallback;
+}
+
 export function ConnectionsView({
   dashboard,
   onSaved,
@@ -161,8 +179,8 @@ export function ConnectionsView({
     <section className="connections-view screen-enter">
       <SignalPanel className="connections-command">
         <span>Connections</span>
-        <h1>Data and AI sources</h1>
-        <p>Check provider health, masked keys, latest use, and source coverage from one clean place.</p>
+        <h1>Source health</h1>
+        <p>Provider status, masked keys, and latest data coverage.</p>
         <div className="connection-summary">
           <Badge tone={openAiTone}>
             {openAiSummary}
@@ -200,6 +218,10 @@ export function ConnectionsView({
                   provider.next_fix && provider.next_fix !== "No action needed."
                     ? provider.next_fix
                     : provider.user_message ?? provider.note;
+                const latestUseNeedsAttention = provider.latest_use_state
+                  ? ["failed", "format_error", "rate_limited", "not_used_yet"].includes(provider.latest_use_state)
+                  : false;
+                const stateNote = latestUseNeedsAttention ? providerAttentionNote(provider, recoveryMessage) : null;
                 return (
                   <article
                     className={`provider-row ${provider.provider === "openai" ? "primary-provider" : ""}`}
@@ -211,11 +233,7 @@ export function ConnectionsView({
                       <div>
                         <strong>{provider.label}</strong>
                         <p>
-                          {isSec
-                            ? "SEC EDGAR adds filing-derived fundamentals: revenue growth, gross margin, and debt-to-equity for covered stocks."
-                            : provider.provider === "openai"
-                              ? "Portfolio-level AI reviews and Ask Signal follow-ups."
-                              : provider.description}
+                          {providerPurpose(provider, isSec)}
                         </p>
                         <small className="provider-secrets">
                           {provider.fields.map((field) => (
@@ -233,7 +251,7 @@ export function ConnectionsView({
                         <span>Use</span>
                         <Badge tone={stateTone(provider.latest_use_state)}>{useLabel(provider)}</Badge>
                       </div>
-                      <small>{recoveryMessage}</small>
+                      {stateNote && <small>{stateNote}</small>}
                       <span>{recordLabel} · {latestTestLine}</span>
                     </div>
                     <div className="provider-actions">
@@ -406,7 +424,15 @@ export function ConnectionsView({
         </details>
       </SignalPanel>
 
-      <SourceMatrixPanel matrix={dashboard.advisor_packet?.sourceMatrix ?? null} />
+      <details className="source-matrix-disclosure">
+        <summary>
+          <span>Source matrix</span>
+          <Badge tone={dashboard.advisor_packet?.sourceMatrix ? "live" : "watch"}>
+            {dashboard.advisor_packet?.sourceMatrix ? "Available" : "Waiting"}
+          </Badge>
+        </summary>
+        <SourceMatrixPanel matrix={dashboard.advisor_packet?.sourceMatrix ?? null} />
+      </details>
 
       <DetailDrawer
         open={Boolean(openProvider)}

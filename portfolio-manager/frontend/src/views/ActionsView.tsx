@@ -86,6 +86,7 @@ function decisionRank(item: AdvisorDecisionItem) {
 export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (question?: string) => void }) {
   const [selected, setSelected] = useState<Recommendation | null>(null);
   const [selectedDecision, setSelectedDecision] = useState<AdvisorDecisionItem | null>(null);
+  const [showOpportunityLab, setShowOpportunityLab] = useState(false);
   const lanes = useMemo(() => groupRecommendations(dashboard.recent_recommendations), [dashboard.recent_recommendations]);
   const advisorDecision = dashboard.advisor_decision;
   const packet = dashboard.advisor_packet;
@@ -153,28 +154,36 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <DecisionReceiptCard dashboard={dashboard} compact />
         </details>
 
-        <SignalPanel className="actions-summary-strip">
-          <div>
-            <span>Reviewed</span>
-            <strong>{advisorDecision?.holding_decisions.length ?? packetPositions.length} holdings</strong>
-            <p>{packetCandidates.length} outside candidates compared against the portfolio.</p>
-          </div>
-          <div>
-            <span>Change pressure</span>
-            <strong>{trims.length ? `${trims.length} trim/rotate` : "No forced trim"}</strong>
-            <p>{trims[0]?.explanation ?? "Signal is not forcing a reduction unless risk or evidence changes."}</p>
-          </div>
-          <div>
-            <span>Potential adds</span>
-            <strong>{addCandidates.length ? `${addCandidates.length} staged/add` : "No adds now"}</strong>
-            <p>{addCandidates[0]?.explanation ?? "Outside ideas must beat current holdings after risk, freshness, and turnover."}</p>
-          </div>
-          <div>
-            <span>Wait list</span>
-            <strong>{waits.length} not ready</strong>
-            <p>{holds.length} holdings can stay as-is at this snapshot.</p>
-          </div>
-        </SignalPanel>
+        <details className="actions-summary-disclosure">
+          <summary>
+            <span>Portfolio action summary</span>
+            <Badge tone={trims.length ? "watch" : "live"}>{trims.length ? `${trims.length} trims` : "Stable"}</Badge>
+          </summary>
+          <SignalPanel className="actions-summary-panel">
+            <div className="actions-summary-strip">
+              <div>
+                <span>Reviewed</span>
+                <strong>{advisorDecision?.holding_decisions.length ?? packetPositions.length} holdings</strong>
+                <p>{packetCandidates.length} outside candidates compared against the portfolio.</p>
+              </div>
+              <div>
+                <span>Change pressure</span>
+                <strong>{trims.length ? `${trims.length} trim/rotate` : "No forced trim"}</strong>
+                <p>{trims[0]?.explanation ?? "Signal is not forcing a reduction unless risk or evidence changes."}</p>
+              </div>
+              <div>
+                <span>Potential adds</span>
+                <strong>{addCandidates.length ? `${addCandidates.length} staged/add` : "No adds now"}</strong>
+                <p>{addCandidates[0]?.explanation ?? "Outside ideas must beat current holdings after risk, freshness, and turnover."}</p>
+              </div>
+              <div>
+                <span>Wait list</span>
+                <strong>{waits.length} not ready</strong>
+                <p>{holds.length} holdings can stay as-is at this snapshot.</p>
+              </div>
+            </div>
+          </SignalPanel>
+        </details>
 
         <section className="execution-grid" data-testid="action-queue">
           <SignalPanel className="execution-plan-panel">
@@ -278,53 +287,55 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           </SignalPanel>
         </section>
 
-        <details className="opportunity-lab-disclosure">
+        <details className="opportunity-lab-disclosure" onToggle={(event) => setShowOpportunityLab(event.currentTarget.open)}>
           <summary>
             <span>Opportunity lab</span>
             <Badge tone="neutral">{packetCandidates.length} candidates</Badge>
           </summary>
-          <OpportunityLab
-            candidates={packetCandidates}
-            onSelect={(item) => {
-              const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
-              const packetDetail = { addPlan: item.addPlan ?? undefined };
-              if (existing) {
+          {showOpportunityLab && (
+            <OpportunityLab
+              candidates={packetCandidates}
+              onSelect={(item) => {
+                const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
+                const packetDetail = { addPlan: item.addPlan ?? undefined };
+                if (existing) {
+                  setSelectedDecision({
+                    ...existing,
+                    target_weight: item.targetWeight ?? existing.target_weight,
+                    current_weight: item.currentWeight ?? existing.current_weight,
+                    reason: item.explanation || existing.reason,
+                    reason_code: item.reasonCode || existing.reason_code,
+                    detail_payload: {
+                      ...(existing.detail_payload ?? {}),
+                      ...packetDetail,
+                    },
+                  });
+                  return;
+                }
                 setSelectedDecision({
-                  ...existing,
-                  target_weight: item.targetWeight ?? existing.target_weight,
-                  current_weight: item.currentWeight ?? existing.current_weight,
-                  reason: item.explanation || existing.reason,
-                  reason_code: item.reasonCode || existing.reason_code,
-                  detail_payload: {
-                    ...(existing.detail_payload ?? {}),
-                    ...packetDetail,
-                  },
+                  id: 0,
+                  decision_run_id: 0,
+                  symbol: item.symbol,
+                  item_type: "opportunity",
+                  decision: item.action === "STAGGER_ENTRY" ? "Stagger Entry" : "Add",
+                  plain_action: `${item.action} ${item.symbol}`,
+                  reason: item.explanation,
+                  target_weight: item.targetWeight ?? 0,
+                  current_weight: item.currentWeight ?? 0,
+                  confidence_label: item.reasonCode,
+                  confidence_score: item.confidence ?? 0,
+                  eligibility: "pass",
+                  risk_check: item.blockers.join("; "),
+                  quant_evidence: item.confidenceDrivers,
+                  source_freshness: item.dataQuality?.freshness ?? "",
+                  reason_code: item.reasonCode,
+                  ai_commentary: "",
+                  created_at: "",
+                  detail_payload: packetDetail,
                 });
-                return;
-              }
-              setSelectedDecision({
-                id: 0,
-                decision_run_id: 0,
-                symbol: item.symbol,
-                item_type: "opportunity",
-                decision: item.action === "STAGGER_ENTRY" ? "Stagger Entry" : "Add",
-                plain_action: `${item.action} ${item.symbol}`,
-                reason: item.explanation,
-                target_weight: item.targetWeight ?? 0,
-                current_weight: item.currentWeight ?? 0,
-                confidence_label: item.reasonCode,
-                confidence_score: item.confidence ?? 0,
-                eligibility: "pass",
-                risk_check: item.blockers.join("; "),
-                quant_evidence: item.confidenceDrivers,
-                source_freshness: item.dataQuality?.freshness ?? "",
-                reason_code: item.reasonCode,
-                ai_commentary: "",
-                created_at: "",
-                detail_payload: packetDetail,
-              });
-            }}
-          />
+              }}
+            />
+          )}
         </details>
 
         <DetailDrawer

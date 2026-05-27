@@ -1897,18 +1897,15 @@ a svg {
 }
 
 /* Mission Control header */
-.mission-control { display: grid; gap: var(--space-4); }
+.mission-control { display: grid; gap: var(--space-3); }
 
 .mission-control-bar {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-radius: 18px;
-  background:
-    radial-gradient(140% 90% at 0% 0%, rgba(60, 220, 160, 0.07), transparent 60%),
-    radial-gradient(120% 90% at 100% 0%, rgba(120, 200, 255, 0.06), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  gap: var(--space-2);
+  padding: 0 2px;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
 }
 
 .mission-control-eyebrow {
@@ -1921,7 +1918,7 @@ a svg {
 .mission-control-eyebrow strong {
   font-family: var(--mono, monospace);
   font-size: 0.74rem;
-  letter-spacing: 0.32em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
   color: rgba(60, 220, 160, 0.85);
 }
@@ -1941,12 +1938,12 @@ a svg {
 
 .mission-control-command h1 {
   margin: 6px 0 0;
-  font-size: clamp(1.32rem, 2.2vw, 1.74rem);
+  font-size: clamp(1.18rem, 1.7vw, 1.5rem);
   font-weight: 700;
-  letter-spacing: -0.005em;
+  letter-spacing: 0;
   line-height: 1.18;
   color: var(--text);
-  max-width: 60ch;
+  max-width: 76ch;
 }
 
 .mission-control-pills {
@@ -2441,14 +2438,20 @@ a svg {
 /* Action timeline */
 .action-timeline {
   display: grid;
-  gap: var(--space-3);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
 .action-timeline-step {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-3);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
   align-items: start;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .action-timeline-marker {
@@ -2459,8 +2462,8 @@ a svg {
 }
 
 .action-timeline-marker span {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
   display: grid;
   place-items: center;
@@ -2470,19 +2473,20 @@ a svg {
 }
 
 .action-timeline-body p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--ink-soft);
-  line-height: 1.45;
+  line-height: 1.28;
+  font-size: 0.78rem;
 }
 
 .action-timeline-body code {
   display: inline-block;
-  margin-top: 8px;
-  padding: 6px 10px;
+  margin-top: 6px;
+  padding: 5px 8px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--mint);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
 }
 
 .action-timeline-head {
@@ -2490,6 +2494,11 @@ a svg {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+.action-timeline-head strong {
+  min-width: 0;
+  font-size: 0.86rem;
 }
 
 .action-timeline-step.status-required .action-timeline-marker,

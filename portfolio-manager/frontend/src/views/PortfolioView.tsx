@@ -133,12 +133,6 @@ export function PortfolioView({
     return [
       { value: "all", label: "All", count: rows.length },
       { value: "TRIM", label: "Trim", count: count((position) => decisionsBySymbol.get(position.symbol)?.action === "TRIM") },
-      { value: "HOLD", label: "Hold", count: count((position) => decisionsBySymbol.get(position.symbol)?.action === "HOLD") },
-      {
-        value: "WAIT_FOR_DATA",
-        label: "Wait",
-        count: count((position) => decisionsBySymbol.get(position.symbol)?.action === "WAIT_FOR_DATA")
-      },
       { value: "breach", label: "Breaches", count: count((position) => Boolean(decisionsBySymbol.get(position.symbol)?.riskBreaches.length)) },
       {
         value: "data",
@@ -428,52 +422,53 @@ export function PortfolioView({
       )}
 
       {hasHoldings && real && (
-        <SignalPanel className="portfolio-map-panel" testId="portfolio-map-panel">
-          <PortfolioMap
-            portfolio={real}
-            advisorPacket={dashboard.advisor_packet ?? null}
-            onSelect={(symbol) => {
-              const target = real.positions.find((position) => position.symbol === symbol);
-              if (target) setSelectedPosition(target);
-            }}
-          />
-        </SignalPanel>
+        <details className="portfolio-visuals-disclosure">
+          <summary>
+            <span>Allocation and risk details</span>
+            <Badge tone="neutral">Optional</Badge>
+          </summary>
+          <SignalPanel className="portfolio-map-panel" testId="portfolio-map-panel">
+            <PortfolioMap
+              portfolio={real}
+              advisorPacket={dashboard.advisor_packet ?? null}
+              onSelect={(symbol) => {
+                const target = real.positions.find((position) => position.symbol === symbol);
+                if (target) setSelectedPosition(target);
+              }}
+            />
+          </SignalPanel>
+          <section className="portfolio-detail-grid">
+            <SignalPanel className="allocation-panel">
+              <div className="panel-label-row">
+                <span>Allocation</span>
+                <PieChart size={16} />
+              </div>
+              <div className="allocation-stack">
+                {real.positions.slice(0, 10).map((position) => (
+                  <div key={position.symbol}>
+                    <span>{position.symbol}</span>
+                    <i style={{ width: `${Math.min(100, position.weight * 100)}%` }} />
+                    <strong>{pct(position.weight)}</strong>
+                  </div>
+                ))}
+              </div>
+            </SignalPanel>
+            <SignalPanel className="allocation-panel">
+              <div className="panel-label-row">
+                <span>Risk notes</span>
+                <ShieldAlert size={16} />
+              </div>
+              <div className="risk-note-stack">
+                {real.stress.warnings.length ? (
+                  real.stress.warnings.map((warning) => <div key={warning}>{warning}</div>)
+                ) : (
+                  <div>No active hard-rule breach at this snapshot.</div>
+                )}
+              </div>
+            </SignalPanel>
+          </section>
+        </details>
       )}
-
-      <section className="portfolio-detail-grid">
-        <SignalPanel className="allocation-panel">
-          <div className="panel-label-row">
-            <span>Allocation</span>
-            <PieChart size={16} />
-          </div>
-          {hasHoldings && real ? (
-            <div className="allocation-stack">
-              {real.positions.slice(0, 10).map((position) => (
-                <div key={position.symbol}>
-                  <span>{position.symbol}</span>
-                  <i style={{ width: `${Math.min(100, position.weight * 100)}%` }} />
-                  <strong>{pct(position.weight)}</strong>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState title="No allocation yet" body="Import holdings to see your real portfolio shape." />
-          )}
-        </SignalPanel>
-        <SignalPanel className="allocation-panel">
-          <div className="panel-label-row">
-            <span>Risk notes</span>
-            <ShieldAlert size={16} />
-          </div>
-          <div className="risk-note-stack">
-            {hasHoldings && real && real.stress.warnings.length ? (
-              real.stress.warnings.map((warning) => <div key={warning}>{warning}</div>)
-            ) : (
-              <div>{hasHoldings ? "No active hard-rule breach at this snapshot." : "Import holdings to activate risk checks."}</div>
-            )}
-          </div>
-        </SignalPanel>
-      </section>
 
       <HoldingDetailDrawer
         dashboard={dashboard}

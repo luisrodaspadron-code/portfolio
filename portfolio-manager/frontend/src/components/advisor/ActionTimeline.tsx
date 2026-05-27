@@ -36,17 +36,17 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
     steps.push({
       id: "repair",
       title: "Repair concentration",
-      detail: `Trim ${first.symbol} toward the ${pct(first.targetWeight ?? 0)} policy threshold.`,
+      detail: `Trim toward ${pct(first.targetWeight ?? 0)} policy threshold.`,
       status: "required",
       math: trimPlan
-        ? `${trimPlan.sharesToSellWholeCompliant ?? trimPlan.sharesToSellWhole} compliant whole shares · ${money(trimPlan.estimatedSellValue)} est.`
+        ? `${trimPlan.sharesToSellWholeCompliant ?? trimPlan.sharesToSellWhole} shares · ${money(trimPlan.estimatedSellValue)}`
         : undefined,
     });
   } else if (blocked) {
     steps.push({
       id: "repair",
       title: "Resolve active breaches",
-      detail: receipt?.riskIncreasingActionsBlocked?.[0] ?? "Clear hard gates before increasing exposure.",
+      detail: receipt?.riskIncreasingActionsBlocked?.[0] ?? "Clear hard gates first.",
       status: "required",
     });
   }
@@ -55,7 +55,7 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
     id: "recheck",
     title: "Recheck gates",
     detail: blocked
-      ? "Confirm sector and single-name caps after remediation."
+      ? "Confirm caps after remediation."
       : "Risk gates are clear at this snapshot.",
     status: blocked ? "waiting" : "complete",
   });
@@ -64,7 +64,7 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
     id: "redeploy",
     title: "Redeploy carefully",
     detail: allowed
-      ? "Broad ETFs may remain eligible if risk-reducing and data gates pass."
+      ? "Only risk-reducing candidates stay eligible."
       : "No risk-reducing adds are eligible yet.",
     status: allowed ? "allowed" : "blocked",
   });
@@ -74,7 +74,7 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
     steps.push({
       id: "stage",
       title: "Stage entries",
-      detail: `${addCandidates.length} candidate${addCandidates.length === 1 ? "" : "s"} · ${tranches} tranches by default.`,
+      detail: `${addCandidates.length} candidate${addCandidates.length === 1 ? "" : "s"} · ${tranches} tranches.`,
       status: blocked ? "blocked" : "allowed",
     });
   }

@@ -1,5 +1,5 @@
 import type { ActionItem, ConnectionProvider, Dashboard, Opportunity, Position, Recommendation } from "../types";
-import { modelRouteLabel, money, pct, textValue, titleCase } from "./format";
+import { money, pct, textValue, titleCase } from "./format";
 
 export type AppTab = "now" | "portfolio" | "risks" | "actions" | "connections";
 
@@ -98,20 +98,6 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
   const latestProvider = dashboard.data_freshness.latest_provider_refresh;
   const latestPriceProviderFailed = latestProvider?.status === "failed" && latestProvider.provider === dashboard.data_freshness.preferred_price_source;
   const auxiliaryProviderWarning = latestProvider?.status === "failed" && !latestPriceProviderFailed;
-  const aiValue =
-    dashboard.ai_activity === "reviewed"
-      ? "Reviewed"
-      : dashboard.ai_activity === "not_connected"
-        ? "Not connected"
-        : dashboard.ai_status.state === "rate_limited"
-          ? "Rate limited"
-          : dashboard.ai_status.state === "error"
-            ? "Fallback"
-            : dashboard.ai_status.configured
-              ? "Ready"
-              : "Needs key";
-  const aiTone =
-    dashboard.ai_status.state === "rate_limited" ? "attention" : dashboard.ai_status.state === "error" ? "attention" : setup.aiReady ? "live" : "attention";
   const dataMode = dashboard.data_freshness.provider_mode;
   const dataValue = setup.dataLive
     ? latestPriceProviderFailed
@@ -144,17 +130,6 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
           ? "Only cash is loaded. Import positions for useful risk checks."
           : "No real holdings imported yet.",
       actionLabel: "Open portfolio",
-    },
-    {
-      label: "AI",
-      value: dashboard.advisor_packet?.decisionReceipt?.modelRoute
-        ? modelRouteLabel(dashboard.advisor_packet.decisionReceipt.modelRoute)
-        : aiValue,
-      tone: aiTone,
-      detail: dashboard.advisor_packet?.decisionReceipt
-        ? `${titleCase(dashboard.advisor_packet.decisionReceipt.reasoningEffort ?? "medium")} reasoning · ${dashboard.ai_status.user_message || dashboard.ai_status.message}`
-        : dashboard.ai_status.user_message || dashboard.ai_status.message,
-      actionLabel: "Open connections",
     },
     {
       label: "Data",

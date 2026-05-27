@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
 import type { AdvisorRunStatus, Dashboard } from "../types";
-import { modelRouteLabel, money, number, pct, shortDateTime, signedPct, titleCase } from "../lib/format";
+import { money, number, pct, shortDateTime, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
 import { PortfolioImpactPreview } from "../components/visuals/PortfolioImpactPreview";
 import { DecisionMap } from "../components/visuals/DecisionMap";
@@ -10,7 +10,6 @@ import { RunConsole } from "../components/advisor/RunConsole";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
 import { savePacketSnapshot } from "../lib/packetSnapshot";
 import { pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
-import { DataQualityPill } from "../components/data/DataQualityPill";
 
 function receiptMath(dashboard: Dashboard) {
   return trimMathFromPacket(dashboard);
@@ -74,15 +73,10 @@ export function HomeView({
     }
   }, [currentHash, currentPacket]);
   const real = dashboard.real_portfolio;
-  const hasHoldings = Boolean(real && real.positions.length > 0);
-  const advisorDecision = dashboard.advisor_decision;
   const canonicalHeadline = dashboard.advisor_packet?.recommendedPriority?.headline;
   const canonicalReceipt = dashboard.advisor_packet?.decisionReceipt;
   const sizing = receiptMath(dashboard);
-  const trend = dashboard.portfolio_trend;
   const topRisk = dashboard.advisor_trace.top_risks[0];
-  const hasTrendHistory = trend.points.length >= 2;
-  const lastAiRun = advisorDecision?.created_at ?? dashboard.ai_status.last_run?.finished_at;
   const nextRun = dashboard.scheduler.next_run_at;
   const answerBody = sizing
     ? `${sizing.symbol} is ${pct(sizing.currentWeight)} of the portfolio versus the ${pct(sizing.targetWeight)} policy target. Repair concentration before considering new exposure.`
@@ -94,26 +88,22 @@ export function HomeView({
   const allowedCount = canonicalReceipt?.riskReducingActionsAllowed?.length ?? 0;
   const policyLabel = selectedPolicy?.name ?? dashboard.policy?.selectedPolicy?.name ?? titleCase(selectedPolicy?.preset ?? "balanced");
   const policyPreset = selectedPolicy?.preset ?? dashboard.policy?.selectedPolicy?.preset ?? "balanced";
-  const today = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date());
   const commandCopy = canonicalReceipt?.summary
     ?? canonicalHeadline
     ?? (firstAction
       ? `${titleCase(firstAction.action)} ${firstAction.symbol} before increasing single-stock exposure.`
       : "Run the advisor to generate the first priority.");
-  const dataLabel = titleCase(dashboard.data_freshness.provider_mode);
 
   return (
     <section className="now-view now-decision-hub screen-enter mission-control">
       <header className="mission-control-bar" data-testid="mission-control-header">
         <div className="mission-control-eyebrow">
-          <strong>SIGNAL PRIME</strong>
-          <span>{today}</span>
+          <strong>Now</strong>
           <Badge tone={policyPreset === "competition" ? "fail" : policyPreset === "aggressive" ? "watch" : "live"}>
             Policy · {policyLabel}
           </Badge>
         </div>
         <div className="mission-control-command">
-          <span>Now</span>
           <h1>{commandCopy}</h1>
         </div>
         <div className="mission-control-pills" role="list">
@@ -179,45 +169,6 @@ export function HomeView({
         )}
       </SignalPanel>
 
-      <section className="mission-telemetry-strip" data-testid="mission-telemetry">
-        <article>
-          <span>Portfolio</span>
-          <strong>{hasHoldings && real ? money(real.total_value) : "Needs import"}</strong>
-          <p>
-            {hasHoldings && real
-              ? `${real.positions.length} holdings · ${hasTrendHistory ? signedPct(trend.day_change_pct) + " day" : "trend building"}`
-              : "Import a portfolio to unlock the advisor."}
-          </p>
-        </article>
-        <article>
-          <span>Data quality</span>
-          <DataQualityPill freshness={dashboard.data_freshness.provider_mode === "live" ? "live" : dashboard.data_freshness.provider_mode === "partial" ? "partial" : dashboard.data_freshness.provider_mode === "sample" ? "sample" : "recent"} compact />
-          <p>
-            {number(dashboard.data_freshness.live_price_symbols || dashboard.data_freshness.sample_price_symbols)} priced symbols · {dataLabel}
-          </p>
-        </article>
-        <article>
-          <span>AI route</span>
-          <strong>
-            {dashboard.advisor_packet?.decisionReceipt?.modelRoute
-              ? modelRouteLabel(dashboard.advisor_packet.decisionReceipt.modelRoute)
-              : dashboard.ai_status.model_router.leadPM.model}
-          </strong>
-          <p>
-            {titleCase(dashboard.advisor_packet?.decisionReceipt?.reasoningEffort
-              ?? dashboard.ai_status.model_router.leadPM.reasoningEffort)} reasoning
-            {lastAiRun ? ` · ${shortDateTime(lastAiRun)}` : ""}
-          </p>
-        </article>
-        <article>
-          <span>Policy</span>
-          <strong>{policyLabel}</strong>
-          <p>
-            Cap ladder · {selectedPolicy ? pct(selectedPolicy.singleStock.hardBuyBlock) : "—"} hard buy block · {nextRun ? shortDateTime(nextRun) : "no scheduled run"}
-          </p>
-        </article>
-      </section>
-
       {firstAction && real && (
         <details className="portfolio-impact-disclosure">
           <summary>
@@ -236,21 +187,23 @@ export function HomeView({
         </details>
       )}
 
-      <SignalPanel className="what-changed-panel">
-        <div className="panel-label-row">
+      <details className="what-changed-disclosure">
+        <summary>
           <span>What changed since last review</span>
           <Badge tone={dashboard.data_freshness.provider_mode === "live" ? "live" : "watch"}>{titleCase(dashboard.data_freshness.provider_mode)}</Badge>
-        </div>
-        <div className="change-grid">
-          {changedItems(dashboard).map((item) => (
-            <article key={item.label} className={item.tone}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-              <p>{item.body}</p>
-            </article>
-          ))}
-        </div>
-      </SignalPanel>
+        </summary>
+        <SignalPanel className="what-changed-panel">
+          <div className="change-grid">
+            {changedItems(dashboard).map((item) => (
+              <article key={item.label} className={item.tone}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </div>
+        </SignalPanel>
+      </details>
 
       <details className="now-run-disclosure" open={busy || activeRun?.status === "running"}>
         <summary>
