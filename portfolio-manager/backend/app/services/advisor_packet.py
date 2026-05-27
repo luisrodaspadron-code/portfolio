@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from math import ceil, floor
 from typing import Any
 
 from app.database import get_risk_rules
@@ -78,16 +79,27 @@ def _data_quality(item: dict[str, Any]) -> dict[str, Any]:
 
 def _risk_breach_from_cap(symbol: str, detail: dict[str, Any], action: str) -> dict[str, Any] | None:
     cap = (detail or {}).get("capDistance") or {}
-    if not cap.get("breached"):
+    state = str(cap.get("state") or "")
+    breached = bool(cap.get("breached"))
+    if not breached and state not in {"hard_buy_block", "urgent_review", "extreme"}:
         return None
-    observed = float(cap.get("current_weight") or 0)
-    limit = float(cap.get("limit") or 0)
+    observed = float(cap.get("current_weight") or cap.get("currentWeight") or 0)
+    if state == "extreme":
+        limit = float(cap.get("extreme") or cap.get("limit") or 0)
+    elif state == "urgent_review":
+        limit = float(cap.get("urgentReview") or cap.get("limit") or 0)
+    elif state == "hard_buy_block":
+        limit = float(cap.get("hardBuyBlock") or cap.get("limit") or 0)
+    else:
+        limit = float(cap.get("limit") or cap.get("urgentReview") or 0)
+    severity = "danger" if action == "TRIM" or state in {"urgent_review", "extreme"} else "elevated"
     return {
         "id": f"{symbol.lower()}-single-name-cap",
-        "severity": "danger" if action == "TRIM" else "elevated",
+        "severity": severity,
         "rule": "max_single_stock_weight" if limit <= 0.12 else "max_position_weight",
         "observed": observed,
         "limit": limit,
+        "state": state or ("breached" if breached else "ok"),
         "message": f"{symbol} is {_pct(observed - limit)} over its {_pct(limit)} cap.",
         "blocksAdds": True,
     }
@@ -141,12 +153,72 @@ def _position_lookup(real: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {position["symbol"]: position for position in real.get("positions", [])}
 
 
+def _round_up(value: float, decimals: int = 4) -> float:
+    factor = 10**decimals
+    return ceil(max(value, 0.0) * factor) / factor
+
+
+def _normalize_trim_plan(
+    trim: dict[str, Any] | None,
+    position: dict[str, Any] | None,
+    *,
+    current_weight: float,
+    target_weight: float,
+) -> dict[str, Any] | None:
+    """Backfill V10 trim compliance fields for legacy persisted decision payloads."""
+
+    if not trim:
+        return None
+
+    normalized = dict(trim)
+    exact = float(normalized.get("sharesToSellExact") or normalized.get("sharesToSell") or 0)
+    price = float(normalized.get("priceUsed") or (position or {}).get("latest_price") or 0)
+    quantity = float((position or {}).get("quantity") or exact)
+    current_value = float(normalized.get("currentValue") or (position or {}).get("market_value") or 0)
+    portfolio_value = current_value / current_weight if current_weight > 0 else 0
+    mode = str(normalized.get("mode") or "redeploy_or_cash")
+    threshold = float(normalized.get("policyThreshold") or target_weight or 0)
+
+    whole_floor = max(0, min(int(floor(exact)), int(floor(quantity))))
+    whole_ceil = max(0, min(int(ceil(exact)), int(floor(quantity))))
+    fractional_compliant = min(_round_up(exact, 4), _round_up(quantity, 4))
+
+    def post_weight(shares: float) -> float:
+        if price <= 0 or portfolio_value <= 0:
+            return float(normalized.get("estimatedPostWeight") or 0)
+        executed = shares * price
+        post_position = max(0.0, current_value - executed)
+        post_total = portfolio_value - executed if mode == "withdrawal" else portfolio_value
+        return post_position / post_total if post_total > 0 else 0.0
+
+    reduce_post = post_weight(float(whole_floor))
+    compliant_post = post_weight(float(whole_ceil))
+
+    normalized.setdefault("complianceMode", "strict_below_threshold")
+    normalized.setdefault("sharesToSellWholeCompliant", whole_ceil)
+    normalized.setdefault("sharesToSellWholeReduceOnly", whole_floor)
+    normalized.setdefault("sharesToSellFractionalCompliant", round(fractional_compliant, 4))
+    normalized.setdefault("estimatedPostWeightCompliant", round(compliant_post, 4))
+    normalized.setdefault("estimatedPostWeightReduceOnly", round(reduce_post, 4))
+    normalized.setdefault("wouldRemainAboveThresholdIfRoundedDown", bool(reduce_post > threshold + 1e-9))
+    normalized.setdefault("policyThreshold", round(threshold, 4))
+    if price > 0 and "estimatedExecutedSellValue" not in normalized:
+        normalized["estimatedExecutedSellValue"] = round(float(normalized.get("sharesToSell") or exact) * price, 2)
+    return normalized
+
+
 def _position_decision(item: dict[str, Any], position: dict[str, Any] | None) -> dict[str, Any]:
     detail = item.get("detail_payload") or {}
     target_weight = float(item.get("target_weight") or 0)
     current_weight = float(item.get("current_weight") or 0)
     current_value = float((position or {}).get("market_value") or 0)
     live_price = float((position or {}).get("latest_price") or 0)
+    trim_plan = _normalize_trim_plan(
+        detail.get("trimPlan"),
+        position,
+        current_weight=current_weight,
+        target_weight=target_weight,
+    )
     return {
         "symbol": item["symbol"],
         "name": (position or {}).get("name") or item["symbol"],
@@ -167,7 +239,7 @@ def _position_decision(item: dict[str, Any], position: dict[str, Any] | None) ->
             for breach in [_risk_breach_from_cap(item["symbol"], detail, _canonical_action(str(item.get("decision") or "")))]
             if breach
         ],
-        "trimPlan": detail.get("trimPlan"),
+        "trimPlan": trim_plan,
         "addPlan": detail.get("addPlan"),
         "confidence": float(item.get("confidence_score") or 0),
         "confidenceDrivers": list(item.get("quant_evidence") or [])[:4],

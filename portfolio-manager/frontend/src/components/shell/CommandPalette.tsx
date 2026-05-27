@@ -10,6 +10,8 @@ export type PaletteAction = {
   label: string;
   detail: string;
   icon: UiIcon;
+  group: "Navigation" | "Actions" | "Holdings" | "Receipts" | "Ask Signal" | "Developer/Audit";
+  shortcut?: string;
   run: () => void;
 };
 
@@ -64,27 +66,34 @@ export function CommandPalette({
                   </div>
                   <Command.List>
                     <Command.Empty>No matching command.</Command.Empty>
-                    <Command.Group heading="Workspace">
-                      {actions.map((action) => {
-                        const IconComponent = action.icon;
-                        return (
-                          <Command.Item
-                            key={action.id}
-                            value={`${action.label} ${action.detail}`}
-                            onSelect={() => {
-                              action.run();
-                              onOpenChange(false);
-                            }}
-                          >
-                            <IconSlot icon={IconComponent} />
-                            <div>
-                              <strong>{action.label}</strong>
-                              <span>{action.detail}</span>
-                            </div>
-                          </Command.Item>
-                        );
-                      })}
-                    </Command.Group>
+                    {(["Navigation", "Actions", "Holdings", "Receipts", "Ask Signal", "Developer/Audit"] as const).map((group) => {
+                      const groupActions = actions.filter((action) => action.group === group);
+                      if (!groupActions.length) return null;
+                      return (
+                        <Command.Group heading={group} key={group}>
+                          {groupActions.map((action) => {
+                            const IconComponent = action.icon;
+                            return (
+                              <Command.Item
+                                key={action.id}
+                                value={`${action.label} ${action.detail} ${group}`}
+                                onSelect={() => {
+                                  action.run();
+                                  onOpenChange(false);
+                                }}
+                              >
+                                <IconSlot icon={IconComponent} />
+                                <div>
+                                  <strong>{action.label}</strong>
+                                  <span>{action.detail}</span>
+                                </div>
+                                {action.shortcut && <kbd>{action.shortcut}</kbd>}
+                              </Command.Item>
+                            );
+                          })}
+                        </Command.Group>
+                      );
+                    })}
                   </Command.List>
                 </Command>
               </motion.div>

@@ -10,23 +10,14 @@ import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
 import { PortfolioConstellation } from "../components/visuals/PortfolioConstellation";
 import { PortfolioMap } from "../components/visuals/PortfolioMap";
 import { portfolioConstellationNodes } from "../lib/viewModels";
-import { Badge, CommandButton, DetailDrawer, EmptyState, SignalPanel } from "../components/ui/Primitives";
+import { Badge, CommandButton, EmptyState, SignalPanel } from "../components/ui/Primitives";
+import { HoldingDetailDrawer } from "../components/portfolio/HoldingDetailDrawer";
 
 type PreviewState = {
   headers: string[];
   rows: string[][];
   inferred: boolean;
   warnings: string[];
-};
-
-type PacketTrimPlan = {
-  targetValue: number;
-  estimatedSellValue: number;
-  sharesToSellExact: number;
-  sharesToSellWhole?: number;
-  estimatedPostWeight: number;
-  priceUsed: number;
-  taxWarning?: string;
 };
 
 const previewHeaders = ["Symbol", "Shares", "Average cost"];
@@ -92,11 +83,13 @@ function maxBreachOver(decision?: AdvisorPacketAction | null) {
 export function PortfolioView({
   dashboard,
   onDone,
-  onError
+  onError,
+  onAsk,
 }: {
   dashboard: Dashboard;
   onDone: (message: string) => Promise<void>;
   onError: (message: string) => void;
+  onAsk?: (question?: string) => void;
 }) {
   const template = "symbol,quantity,avg_cost\nAAPL,12,185.40\nSPY,20,520.00\nCASH,2500,2500\n";
   const [file, setFile] = useState<File | null>(null);
@@ -160,9 +153,6 @@ export function PortfolioView({
       }
     ];
   }, [decisionsBySymbol, real?.positions]);
-  const selectedDecision = selectedPosition ? decisionsBySymbol.get(selectedPosition.symbol) : null;
-  const selectedTrimPlan = selectedDecision?.trimPlan as PacketTrimPlan | null | undefined;
-  const selectedCapOver = maxBreachOver(selectedDecision);
 
   const onDrop = async (files: File[]) => {
     const next = files[0];
@@ -488,78 +478,13 @@ export function PortfolioView({
         </SignalPanel>
       </section>
 
-      <DetailDrawer
+      <HoldingDetailDrawer
+        dashboard={dashboard}
+        position={selectedPosition}
         open={Boolean(selectedPosition)}
         onOpenChange={(open) => !open && setSelectedPosition(null)}
-        title={selectedPosition ? `${selectedPosition.symbol}: ${actionLabel(selectedDecision?.action)}` : "Holding detail"}
-        eyebrow="Real holding"
-      >
-        {selectedPosition && (
-          <div className="holding-detail-drawer">
-            <div className="detail-score-row">
-              <div>
-                <span>Value</span>
-                <strong>{money(selectedPosition.market_value)}</strong>
-              </div>
-              <div>
-                <span>Weight</span>
-                <strong>{pct(selectedPosition.weight)}</strong>
-              </div>
-              <div>
-                <span>Decision</span>
-                <strong>{actionLabel(selectedDecision?.action)}</strong>
-              </div>
-              <div>
-                <span>Target</span>
-                <strong>{selectedDecision?.targetWeight !== undefined ? pct(selectedDecision.targetWeight) : "Pending"}</strong>
-              </div>
-              <div>
-                <span>Cap distance</span>
-                <strong>{selectedCapOver > 0 ? `${pct(selectedCapOver)} over` : "Within rule"}</strong>
-              </div>
-              <div>
-                <span>Price timestamp</span>
-                <strong>{selectedDecision?.priceTimestamp ? new Date(selectedDecision.priceTimestamp).toLocaleString() : "Unavailable"}</strong>
-              </div>
-            </div>
-            {selectedTrimPlan && (
-              <section className="decision-receipt-card">
-                <h3>Trim plan</h3>
-                <p>Advisory-only. No order has been placed.</p>
-                <div className="detail-score-row">
-                  <div><span>Target value</span><strong>{money(selectedTrimPlan.targetValue)}</strong></div>
-                  <div><span>Estimated trim</span><strong>{money(selectedTrimPlan.estimatedSellValue)}</strong></div>
-                  <div><span>Exact shares</span><strong>{number(selectedTrimPlan.sharesToSellExact)}</strong></div>
-                  <div><span>Whole shares</span><strong>{selectedTrimPlan.sharesToSellWhole ?? "n/a"}</strong></div>
-                  <div><span>Post weight</span><strong>{pct(selectedTrimPlan.estimatedPostWeight)}</strong></div>
-                  <div><span>Price used</span><strong>{money(selectedTrimPlan.priceUsed)}</strong></div>
-                </div>
-                {selectedTrimPlan.taxWarning && <p>{selectedTrimPlan.taxWarning}</p>}
-              </section>
-            )}
-            <section>
-              <h3>Why Signal classified it this way</h3>
-              <p>{selectedDecision?.explanation ?? selectedPosition.valuation_note}</p>
-              {selectedDecision?.riskBreaches.map((breach) => (
-                <div className="drawer-risk-note" key={breach.id}>
-                  {breach.message} {breach.blocksAdds ? "New similar exposure is blocked until this clears." : ""}
-                </div>
-              ))}
-            </section>
-            <section>
-              <h3>Data quality</h3>
-              <div className="detail-score-row">
-                <div><span>Provider</span><strong>{titleCase(selectedDecision?.dataQuality.provider ?? selectedPosition.valuation_status)}</strong></div>
-                <div><span>Freshness</span><strong>{titleCase(selectedDecision?.dataQuality.freshness ?? selectedPosition.valuation_status)}</strong></div>
-                <div><span>Coverage</span><strong>{titleCase(selectedDecision?.dataQuality.coverage ?? "unknown")}</strong></div>
-              </div>
-              {(selectedDecision?.dataQuality.warnings ?? [selectedPosition.valuation_note]).map((warning) => (
-                <p key={warning}>{warning}</p>
-              ))}
-            </section>
-          </div>
-        )}
-      </DetailDrawer>
+        onAsk={(question) => onAsk?.(question)}
+      />
     </section>
   );
 }

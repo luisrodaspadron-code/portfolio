@@ -1,13 +1,15 @@
 import type { ActionItem, ConnectionProvider, Dashboard, Opportunity, Position, Recommendation } from "../types";
-import { money, pct, textValue, titleCase } from "./format";
+import { modelRouteLabel, money, pct, textValue, titleCase } from "./format";
 
-export type AppTab = "now" | "portfolio" | "risks" | "actions" | "connections";
+export type AppTab = "now" | "portfolio" | "risks" | "actions" | "research" | "connections";
 
 export type TelemetryItem = {
   label: string;
   value: string;
   tone: "live" | "good" | "attention" | "danger" | "neutral";
   detail: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 export type PrimaryDecision = {
@@ -108,51 +110,81 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
           ? "Rate limited"
           : dashboard.ai_status.state === "error"
             ? "Fallback"
-            : dashboard.ai_status.state === "live"
-              ? "Live"
-              : dashboard.ai_status.configured
-                ? "Ready"
-                : "Needs key";
+            : dashboard.ai_status.configured
+              ? "Ready"
+              : "Needs key";
   const aiTone =
     dashboard.ai_status.state === "rate_limited" ? "attention" : dashboard.ai_status.state === "error" ? "attention" : setup.aiReady ? "live" : "attention";
-  const dataValue = setup.dataLive ? (latestPriceProviderFailed ? "Stale" : "Live") : dashboard.data_freshness.price_bars ? "Sample" : "Refreshing";
-  const dataTone = setup.dataLive ? (latestPriceProviderFailed ? "attention" : "live") : dashboard.data_freshness.price_bars ? "attention" : "neutral";
+  const dataMode = dashboard.data_freshness.provider_mode;
+  const dataValue = setup.dataLive
+    ? latestPriceProviderFailed
+      ? "Stale"
+      : dataMode === "partial"
+        ? "Partial"
+        : "Recent"
+    : dashboard.data_freshness.price_bars
+      ? "Sample"
+      : "Needs data";
+  const dataTone = setup.dataLive
+    ? latestPriceProviderFailed || dataMode === "partial"
+      ? "attention"
+      : "good"
+    : dashboard.data_freshness.price_bars
+      ? "attention"
+      : "neutral";
+  const largestPosition = dashboard.real_portfolio?.positions.reduce(
+    (top, position) => (position.weight > (top?.weight ?? 0) ? position : top),
+    dashboard.real_portfolio?.positions[0],
+  );
   return [
     {
       label: "Portfolio",
       value: setup.portfolioConnected ? money(portfolioValue) : setup.cashOnly ? "Cash only" : "Missing",
       tone: setup.portfolioConnected ? "good" : "attention",
       detail: setup.portfolioConnected
-        ? `${dashboard.real_portfolio?.positions.length ?? 0} positions · day ${money(dashboard.portfolio_trend.day_change)}`
+        ? `${dashboard.real_portfolio?.positions.length ?? 0} holdings${largestPosition ? ` · largest ${largestPosition.symbol} ${pct(largestPosition.weight)}` : ""}`
         : setup.cashOnly
           ? "Only cash is loaded. Import positions for useful risk checks."
-          : "No real holdings imported yet."
+          : "No real holdings imported yet.",
+      actionLabel: "Open portfolio",
     },
     {
-      label: "AI",
-      value: aiValue,
+      label: "Model",
+      value: dashboard.advisor_packet?.decisionReceipt?.modelRoute
+        ? modelRouteLabel(dashboard.advisor_packet.decisionReceipt.modelRoute)
+        : aiValue,
       tone: aiTone,
-      detail: dashboard.ai_status.user_message || dashboard.ai_status.message
+      detail: dashboard.advisor_packet?.decisionReceipt
+        ? `${titleCase(dashboard.advisor_packet.decisionReceipt.reasoningEffort ?? "medium")} reasoning · ${dashboard.ai_status.user_message || dashboard.ai_status.message}`
+        : dashboard.ai_status.user_message || dashboard.ai_status.message,
+      actionLabel: "Open connections",
     },
     {
       label: "Data",
       value: dataValue,
       tone: dataTone,
       detail: setup.dataLive
-        ? `${dashboard.data_freshness.live_price_symbols} symbols from ${titleCase(dashboard.data_freshness.preferred_price_source)}${auxiliaryProviderWarning ? `. ${titleCase(latestProvider?.provider)} needs attention.` : ""}`
-        : "Using deterministic local sample data until a market provider is connected."
+        ? `${dashboard.data_freshness.live_price_symbols} priced symbols from ${titleCase(dashboard.data_freshness.preferred_price_source)}${auxiliaryProviderWarning ? `. ${titleCase(latestProvider?.provider)} needs attention.` : ""}`
+        : "Using deterministic local sample data until a market provider is connected.",
+      actionLabel: "Open source matrix",
     },
     {
       label: "Risk",
-      value: setup.portfolioConnected ? (riskBreaches ? "Review" : "Clear") : "Needs holdings",
+      value: setup.portfolioConnected ? (riskBreaches ? "Extreme" : "Clear") : "Needs holdings",
       tone: setup.portfolioConnected ? (riskBreaches ? "danger" : "good") : "attention",
-      detail: setup.portfolioConnected ? (riskBreaches ? `${riskBreaches} hard-rule issue${riskBreaches === 1 ? "" : "s"}` : "No hard breach in current holdings.") : "Risk checks need imported positions."
+      detail: setup.portfolioConnected
+        ? riskBreaches
+          ? `${riskBreaches} threshold${riskBreaches === 1 ? "" : "s"} breached · review before adding exposure.`
+          : "No hard breach in current holdings."
+        : "Risk checks need imported positions.",
+      actionLabel: "Open risk brief",
     },
     {
       label: "Quant",
-      value: quantError ? "Error" : quantChecked ? "Checked" : quantPartial ? "Partial" : "Waiting",
+      value: quantError ? "Error" : quantChecked ? "Checked" : quantPartial ? "Partial" : "Pending",
       tone: quantError ? "danger" : quantChecked ? "good" : quantPartial ? "attention" : "neutral",
-      detail: `${dashboard.quant_diagnostics.coverage.scored_instruments} scored · ${dashboard.universe_status.included_assets || dashboard.market_scope.enabled_instruments} universe assets`
+      detail: `${dashboard.quant_diagnostics.coverage.scored_instruments} scored · ${dashboard.universe_status.included_assets || dashboard.market_scope.enabled_instruments} universe assets`,
+      actionLabel: "View receipt",
     }
   ];
 }
@@ -191,7 +223,7 @@ export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
     return {
       eyebrow: "Signal required",
       title: "Import real holdings to activate the advisor",
-      body: "Signal PM needs your real positions, cash, and concentration before it can produce useful real-money actions.",
+      body: "Signal Prime needs your real positions, cash, and concentration before it can produce useful real-money actions.",
       primaryLabel: "Import real holdings",
       primaryTab: "portfolio",
       secondaryLabel: "Connect AI & data",
@@ -205,7 +237,7 @@ export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
     return {
       eyebrow: "AI rate limited",
       title: "Use quant-only actions while OpenAI cools down",
-      body: "The OpenAI key is saved, but the provider is rate-limiting requests. Signal PM will keep using deterministic quant gates and rules-based explanations until the model is available.",
+      body: "The OpenAI key is saved, but the provider is rate-limiting requests. Signal Prime will keep using deterministic quant gates and rules-based explanations until the model is available.",
       primaryLabel: "Use quant-only actions",
       primaryTab: "actions",
       secondaryLabel: "Review connection",
@@ -236,7 +268,7 @@ export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
     return {
       eyebrow: "Quant fallback",
       title: aiError ? "AI review failed, but quant decisions are still available" : "Use quant-only decisions",
-      body: dashboard.ai_status.user_message || "The OpenAI key is saved, but the latest model output could not be used. Signal PM is falling back to deterministic risk-gated decisions.",
+      body: dashboard.ai_status.user_message || "The OpenAI key is saved, but the latest model output could not be used. Signal Prime is falling back to deterministic risk-gated decisions.",
       primaryLabel: "Review quant actions",
       primaryTab: "actions",
       secondaryLabel: "See AI details",
@@ -258,7 +290,7 @@ export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
         ? `${advisorDecision.portfolio_verdict} ${decisionItem?.reason ?? ""}`.trim()
         : dashboard.advisor_review
           ? textValue(reviewAction.next_step, textValue(reviewAction.reason, dashboard.advisor_review.brief))
-          : fallbackAction?.plain_action ?? "No urgent action right now. Signal PM is monitoring risk, data freshness, and opportunity rank."
+          : fallbackAction?.plain_action ?? "No urgent action right now. Signal Prime is monitoring risk, data freshness, and opportunity rank."
     ),
     primaryLabel: dashboard.decision_packet_status.risk_breaches ? "Review risks" : "Review advisor actions",
     primaryTab: dashboard.decision_packet_status.risk_breaches ? "risks" : "actions",

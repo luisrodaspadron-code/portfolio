@@ -25,8 +25,15 @@
 }
 
 @media (max-width: 1080px) {
+  .display-mode-toggle {
+    display: none;
+  }
+
+  .policy-selector-chip span:first-of-type {
+    display: none;
+  }
+
   .command-deck,
-  .now-command-grid,
   .now-intelligence-grid,
   .portfolio-detail-grid,
   .operating-grid,

@@ -1,7 +1,7 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { BrainCircuit, BriefcaseBusiness, KeyRound, ListChecks, MessageCircle, RefreshCw, ShieldAlert } from "lucide-react";
-import { useMemo, useState, useEffect } from "react";
-import { getAdvisorRun, getDashboard, refreshData, runAdvisorDeepReview, startAdvisorRun, streamAdvisorRunEvents } from "./api";
+import { BrainCircuit, BriefcaseBusiness, GitCompare, KeyRound, ListChecks, MessageCircle, RefreshCw, ShieldAlert, Trophy } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { getAdvisorRun, getDashboard, refreshData, runAdvisorDeepReview, runBacktest, startAdvisorRun, streamAdvisorRunEvents } from "./api";
 import type { AdvisorRunStatus, Dashboard } from "./types";
 import { CommandPalette, type PaletteAction } from "./components/shell/CommandPalette";
 import { CommandRail, MobileDock, TopTelemetry } from "./components/shell/AppFrame";
@@ -10,7 +10,13 @@ import { PortfolioView } from "./views/PortfolioView";
 import { ActionsView } from "./views/ActionsView";
 import { ConnectionsView } from "./views/ConnectionsView";
 import { RiskView } from "./views/RiskView";
+import { IntelligenceView } from "./views/IntelligenceView";
 import { AskSignalPanel } from "./components/advisor/AskSignalPanel";
+import { CompetitionBrief } from "./components/advisor/CompetitionBrief";
+import { CompareRunDrawer } from "./components/advisor/CompareRunDrawer";
+import { pickSelectedPolicy } from "./components/policy/SelectedPolicyCard";
+import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
+import { displayModeClass, type DisplayMode } from "./lib/displayModes";
 import { primaryDecision, telemetryState, type AppTab } from "./lib/viewModels";
 
 type Notice = { tone: "success" | "error"; message: string } | null;
@@ -27,6 +33,9 @@ export function App() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [copilotQuestion, setCopilotQuestion] = useState<string | undefined>();
   const [copilotRunning, setCopilotRunning] = useState(false);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("command");
+  const [competitionBriefOpen, setCompetitionBriefOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   async function load() {
     const data = await getDashboard();
@@ -222,60 +231,129 @@ export function App() {
 
   const telemetry = useMemo(() => (dashboard ? telemetryState(dashboard) : []), [dashboard]);
   const advisorStreaming = Boolean(activeRunId && activeRun?.status === "running");
+  const telemetryWithActions = useMemo(
+    () =>
+      telemetry.map((item) => {
+        if (item.label === "Portfolio") {
+          return { ...item, onAction: () => setActiveTab("portfolio") };
+        }
+        if (item.label === "Model") {
+          return { ...item, onAction: () => setActiveTab("connections") };
+        }
+        if (item.label === "Data") {
+          return { ...item, onAction: () => setActiveTab("connections") };
+        }
+        if (item.label === "Risk") {
+          return { ...item, onAction: () => setActiveTab("risks") };
+        }
+        if (item.label === "Quant") {
+          return { ...item, onAction: () => setActiveTab("actions") };
+        }
+        return item;
+      }),
+    [telemetry],
+  );
   const displayedTelemetry = useMemo(
     () =>
       copilotRunning
-        ? telemetry.map((item) =>
-            item.label === "AI"
-              ? { ...item, value: "Running", tone: "live" as const, detail: "Ask Signal is reading the latest advisor packet." }
-              : item
+        ? telemetryWithActions.map((item) =>
+            item.label === "Model"
+              ? { ...item, value: "Reviewing", tone: "live" as const, detail: "Ask Signal is reading the latest advisor packet." }
+              : item,
           )
         : advisorStreaming
-          ? telemetry.map((item) =>
-              item.label === "AI"
-                ? { ...item, value: "Running", tone: "live" as const, detail: "Signal PM is running the advisor cycle. Live events streaming." }
-                : item
+          ? telemetryWithActions.map((item) =>
+              item.label === "Model"
+                ? { ...item, value: "Running", tone: "live" as const, detail: "Advisor cycle in progress with live run events." }
+                : item,
             )
-        : telemetry,
-    [advisorStreaming, copilotRunning, telemetry]
+          : telemetryWithActions,
+    [advisorStreaming, copilotRunning, telemetryWithActions],
   );
   const decision = useMemo(() => (dashboard ? primaryDecision(dashboard) : null), [dashboard]);
+  const selectedPolicy = useMemo(() => (dashboard ? pickSelectedPolicy(dashboard) : null), [dashboard]);
   const screenContext = activeTab;
-  const paletteActions = useMemo<PaletteAction[]>(
-    () => [
-      { id: "import", label: "Import holdings", detail: "Load real portfolio CSV", icon: BriefcaseBusiness, run: () => setActiveTab("portfolio") },
-      { id: "connect", label: "Connect OpenAI", detail: "Add or test AI key", icon: KeyRound, run: () => setActiveTab("connections") },
-      { id: "advisor", label: "Run advisor", detail: "Refresh robo advisor cycle", icon: BrainCircuit, run: () => void runAdvisorFlow() },
-      { id: "risks", label: "Review risks", detail: "Open the visual risk cockpit", icon: ShieldAlert, run: () => setActiveTab("risks") },
-      { id: "actions", label: "Review actions", detail: "Open advisor insight cards", icon: ListChecks, run: () => setActiveTab("actions") },
-      { id: "ask", label: "Ask Signal", detail: "Ask a follow-up about the advisor packet", icon: MessageCircle, run: () => openCopilot() },
-      { id: "refresh", label: "Refresh data", detail: "Run data refresh", icon: RefreshCw, run: () => void act("Refresh", refreshData) }
-    ],
-    []
-  );
+  const firstSymbol = dashboard?.advisor_packet?.recommendedPriority?.firstAction?.symbol;
 
-  function openCopilot(question?: string) {
+  function handleDisplayMode(mode: DisplayMode) {
+    setDisplayMode(mode);
+    if (mode === "research") {
+      setActiveTab("research");
+    } else if (mode === "focus") {
+      setActiveTab("now");
+    }
+  }
+
+  const openCompareRuns = useCallback(() => {
+    setActiveTab("now");
+    setCompareOpen(true);
+  }, []);
+
+  const openCopilot = useCallback((question?: string) => {
     setCopilotQuestion(question);
     setCopilotOpen(true);
-  }
+  }, []);
+
+  const paletteActions = useMemo<PaletteAction[]>(
+    () => [
+      { id: "now", label: "Open Now", detail: "Mission control dashboard", icon: BrainCircuit, group: "Navigation", shortcut: "N", run: () => setActiveTab("now") },
+      { id: "portfolio", label: "Open Portfolio", detail: "Holdings, map, and allocation", icon: BriefcaseBusiness, group: "Navigation", shortcut: "P", run: () => setActiveTab("portfolio") },
+      { id: "risks", label: "Open Risks", detail: "Risk radar and blockers", icon: ShieldAlert, group: "Navigation", run: () => setActiveTab("risks") },
+      { id: "actions", label: "Open Actions", detail: "Action timeline and tickets", icon: ListChecks, group: "Navigation", shortcut: "A", run: () => setActiveTab("actions") },
+      { id: "research", label: "Open Research", detail: "Pipeline, backtest, and memos", icon: BrainCircuit, group: "Navigation", run: () => setActiveTab("research") },
+      { id: "connections", label: "Open Connections", detail: "Source matrix and model routing", icon: KeyRound, group: "Navigation", run: () => setActiveTab("connections") },
+      { id: "advisor", label: "Run advisor", detail: "Refresh advisor cycle and receipt", icon: BrainCircuit, group: "Actions", shortcut: "R", run: () => void runAdvisorFlow() },
+      { id: "refresh", label: "Refresh data", detail: "Run provider refresh", icon: RefreshCw, group: "Actions", run: () => void act("Refresh", refreshData) },
+      { id: "holding", label: firstSymbol ? `Open ${firstSymbol} ticket` : "Open first action", detail: "Jump to the highest-priority advisory ticket", icon: ListChecks, group: "Holdings", run: () => setActiveTab("actions") },
+      { id: "receipt", label: "Open decision receipt", detail: "View sealed deterministic receipt", icon: ListChecks, group: "Receipts", shortcut: "D", run: () => setActiveTab("actions") },
+      { id: "compare", label: "Compare last two runs", detail: "Diff portfolio, risk, and receipt hash", icon: GitCompare, group: "Receipts", run: () => openCompareRuns() },
+      { id: "ask", label: "Ask Signal", detail: "Context-aware follow-up questions", icon: MessageCircle, group: "Ask Signal", shortcut: "K", run: () => openCopilot() },
+      { id: "ask-first", label: "Ask Signal: explain first action", detail: "Why this is today's command", icon: MessageCircle, group: "Ask Signal", run: () => openCopilot("Why is this the first action?") },
+      { id: "brief", label: "Open competition brief", detail: "Judge-ready portfolio summary", icon: Trophy, group: "Developer/Audit", run: () => setCompetitionBriefOpen(true) },
+      { id: "focus", label: "Toggle focus mode", detail: "Show only first action and receipt", icon: BrainCircuit, group: "Developer/Audit", run: () => handleDisplayMode(displayMode === "focus" ? "command" : "focus") },
+      { id: "research-mode", label: "Toggle research mode", detail: "Open research evidence screen", icon: BrainCircuit, group: "Developer/Audit", run: () => handleDisplayMode(displayMode === "research" ? "command" : "research") },
+    ],
+    [displayMode, firstSymbol, openCompareRuns, openCopilot],
+  );
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (event.metaKey || event.ctrlKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "r") {
+        event.preventDefault();
+        void runAdvisorFlow();
+      } else if (key === "a") {
+        event.preventDefault();
+        setActiveTab("actions");
+      } else if (key === "p") {
+        event.preventDefault();
+        setActiveTab("portfolio");
+      } else if (key === "k") {
+        event.preventDefault();
+        openCopilot();
+      } else if (key === "d") {
+        event.preventDefault();
+        setActiveTab("actions");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openCopilot]);
 
   function openDecision(tab: AppTab) {
     setActiveTab(tab);
   }
 
   if (!dashboard) {
-    return (
-      <main className="signal-loading">
-        <div className="loading-orbit" />
-        <strong>Signal PM</strong>
-        <span>Loading local command workspace</span>
-      </main>
-    );
+    return <LoadingSkeleton />;
   }
 
   return (
     <Tooltip.Provider delayDuration={120}>
-      <div className="signal-app">
+      <div className={`signal-app ${displayModeClass(displayMode)}`}>
         <CommandRail activeTab={activeTab} onTab={setActiveTab} />
         <main className="signal-workspace">
           <TopTelemetry
@@ -284,8 +362,13 @@ export function App() {
             onOpenPalette={() => setPaletteOpen(true)}
             primaryLabel={decision?.primaryLabel ?? "Open Now"}
             onPrimaryAction={() => openDecision(decision?.primaryTab ?? "now")}
+            selectedPolicy={selectedPolicy}
+            displayMode={displayMode}
+            onDisplayMode={handleDisplayMode}
+            onPolicyChanged={reloadWithNotice}
+            onPolicyError={showError}
           />
-          {busy && <div className="process-banner compact" data-testid="process-banner">{busyLabel || "Signal PM is working"} · {activeRun?.current_step?.step ?? "Starting run"}</div>}
+          {busy && <div className="process-banner compact" data-testid="process-banner">{busyLabel || "Signal Prime is working"} · {activeRun?.current_step?.step ?? "Starting run"}</div>}
           {notice && <div className={`notice ${notice.tone}`}>{notice.message}</div>}
           {activeTab === "now" && (
             <HomeView
@@ -296,11 +379,22 @@ export function App() {
               activeRun={activeRun}
               onRunAdvisor={() => void runAdvisorFlow()}
               onDeepReview={() => void runDeepReview()}
+              displayMode={displayMode}
+              onCompareOpenChange={setCompareOpen}
             />
           )}
-          {activeTab === "portfolio" && <PortfolioView dashboard={dashboard} onDone={reloadWithNotice} onError={showError} />}
+          {activeTab === "portfolio" && (
+            <PortfolioView dashboard={dashboard} onDone={reloadWithNotice} onError={showError} onAsk={openCopilot} />
+          )}
           {activeTab === "risks" && <RiskView dashboard={dashboard} onAsk={openCopilot} />}
           {activeTab === "actions" && <ActionsView dashboard={dashboard} onAsk={openCopilot} />}
+          {activeTab === "research" && (
+            <IntelligenceView
+              dashboard={dashboard}
+              latestBacktest={dashboard.recent_backtests[0]}
+              onRunBacktest={(symbols, maxPositions) => void act("Backtest", () => runBacktest(symbols, maxPositions))}
+            />
+          )}
           {activeTab === "connections" && <ConnectionsView dashboard={dashboard} onSaved={reloadWithNotice} onError={showError} />}
         </main>
         <MobileDock activeTab={activeTab} onTab={setActiveTab} />
@@ -312,6 +406,12 @@ export function App() {
           screenContext={screenContext}
           onOpenChange={setCopilotOpen}
           onActivity={setCopilotRunning}
+        />
+        <CompetitionBrief open={competitionBriefOpen} onOpenChange={setCompetitionBriefOpen} dashboard={dashboard} />
+        <CompareRunDrawer
+          open={compareOpen}
+          onOpenChange={setCompareOpen}
+          packet={dashboard.advisor_packet}
         />
       </div>
     </Tooltip.Provider>

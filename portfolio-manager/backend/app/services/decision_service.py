@@ -23,11 +23,17 @@ from app.services.copilot_service import ask_copilot
 from app.services.data_service import compute_universe_features
 from app.services.advisor_math import build_add_plan, build_trim_plan, cap_distance, data_quality_from_price
 from app.services.risk import evaluate_candidate, target_weight_for_candidate
-from app.services.policy_engine import RiskPolicy, selected_risk_policy
+from app.services.policy_engine import RiskPolicy, selected_risk_policy, threshold_for_state, PolicyState
 from app.services.trade_impact import evaluate_trade_impact
 from app.services.llm_review_packet import build_llm_review_packet
+from app.services.llm_review_output import (
+    LLM_REVIEW_OUTPUT_SCHEMA,
+    detect_decision_conflict,
+    detect_forbidden_claims,
+)
 from app.services.specialist_agents import run_specialist_agents
 from app.services.universe_service import universe_status
+from app.services.data_service import latest_fundamentals
 
 
 DECISION_FIELDS = [
@@ -130,7 +136,13 @@ def _evidence(item: dict[str, Any] | None) -> list[str]:
     ]
 
 
-def _position_data_quality(position: dict[str, Any], feature: dict[str, Any] | None) -> dict[str, Any]:
+def _position_data_quality(
+    position: dict[str, Any],
+    feature: dict[str, Any] | None,
+    *,
+    policy: RiskPolicy | None = None,
+    fundamentals_symbols: set[str] | None = None,
+) -> dict[str, Any]:
     if position.get("valuation_status") == "missing_price":
         return {
             "provider": "missing",
@@ -143,14 +155,24 @@ def _position_data_quality(position: dict[str, Any], feature: dict[str, Any] | N
             "warnings": ["No local price or imported average cost is available."],
         }
     if feature:
-        return data_quality_from_price(
+        quality = data_quality_from_price(
             provider=str(feature.get("price_source") or "unknown"),
             source_timestamp=str(feature.get("latest_date") or ""),
             asset_class=str(position.get("asset_class") or "stock"),
             coverage="complete",
             sample=feature.get("price_source") == "sample",
+            policy=policy,
         )
-    return {
+        symbol = str(position.get("symbol") or "").upper()
+        if fundamentals_symbols is not None and symbol and symbol not in fundamentals_symbols:
+            if str(position.get("asset_class") or "").lower() == "stock":
+                quality["coverage"] = "partial"
+                warnings = list(quality.get("warnings") or [])
+                warnings.append("Fundamentals coverage incomplete.")
+                quality["warnings"] = warnings
+                quality["confidence"] = min(float(quality.get("confidence") or 0), 0.72)
+        return quality
+    quality = {
         "provider": "imported_cost_basis" if position.get("valuation_status") == "proxy" else "local_price",
         "sourceTimestamp": "",
         "receivedAt": _now(),
@@ -160,6 +182,15 @@ def _position_data_quality(position: dict[str, Any], feature: dict[str, Any] | N
         "confidence": 0.35,
         "warnings": [position.get("valuation_note") or "Insufficient market history for full signal generation."],
     }
+    symbol = str(position.get("symbol") or "").upper()
+    if fundamentals_symbols is not None and symbol and symbol not in fundamentals_symbols:
+        if str(position.get("asset_class") or "").lower() == "stock":
+            quality["coverage"] = "partial"
+            warnings = list(quality.get("warnings") or [])
+            warnings.append("Fundamentals coverage incomplete.")
+            quality["warnings"] = warnings
+            quality["confidence"] = min(float(quality.get("confidence") or 0), 0.72)
+    return quality
 
 
 def _sector_weights_from_holdings(holdings: list[dict[str, Any]]) -> dict[str, float]:
@@ -170,6 +201,53 @@ def _sector_weights_from_holdings(holdings: list[dict[str, Any]]) -> dict[str, f
     return weights
 
 
+def _is_broad_etf(position: dict[str, Any]) -> bool:
+    if str(position.get("asset_class") or "").upper() != "ETF":
+        return False
+    theme = str(position.get("theme") or position.get("sector") or "").lower()
+    name = str(position.get("name") or "").lower()
+    if theme in {"thematic", "leveraged", "inverse"} or "leveraged" in name or "2x" in name or "3x" in name:
+        return False
+    return True
+
+
+def _holding_cap_payload(position: dict[str, Any], rules: dict[str, Any], policy: RiskPolicy) -> dict[str, Any]:
+    current_weight = float(position.get("weight") or 0)
+    legacy_cap = rules["max_etf_weight"] if position.get("asset_class") == "ETF" else rules["max_single_stock_weight"]
+    if _is_broad_etf(position) and policy.broad_etf.exempt_from_single_stock_cap:
+        payload = cap_distance(current_weight, policy.broad_etf.max_single_broad_etf)
+        breached = bool(payload.get("breached"))
+        payload["state"] = "hard_buy_block" if breached else "ok"
+        payload["blocksNewBuys"] = breached
+        payload["requiresTrimPlan"] = breached
+        return payload
+    return cap_distance(current_weight, legacy_cap, single_stock=policy.single_stock)
+
+
+def _trim_policy_state(state: str) -> PolicyState:
+    if state in {"extreme", "urgent_review", "hard_buy_block", "warning", "ok"}:
+        return state  # type: ignore[return-value]
+    return "urgent_review"
+
+
+def _portfolio_snapshot(holdings: list[dict[str, Any]], total_value: float, sector_weights: dict[str, float]) -> dict[str, Any]:
+    return {
+        "totalValue": total_value,
+        "positions": [
+            {
+                "symbol": position["symbol"],
+                "weight": float(position.get("weight") or 0),
+                "sector": str(position.get("sector") or "Unknown"),
+                "assetClass": str(position.get("asset_class") or "").lower(),
+                "isBroadEtf": _is_broad_etf(position),
+                "isThematicEtf": str(position.get("asset_class") or "").upper() == "ETF" and not _is_broad_etf(position),
+            }
+            for position in holdings
+        ],
+        "sectorWeights": dict(sector_weights),
+    }
+
+
 def _holding_decision(
     position: dict[str, Any],
     feature: dict[str, Any] | None,
@@ -177,14 +255,15 @@ def _holding_decision(
     total_value: float,
     sector_weights: dict[str, float],
     policy: RiskPolicy,
+    fundamentals_symbols: set[str] | None = None,
 ) -> dict[str, Any]:
     current_weight = float(position.get("weight") or 0)
     cap = rules["max_etf_weight"] if position.get("asset_class") == "ETF" else rules["max_single_stock_weight"]
     source = _candidate_source(feature)
-    cap_payload = cap_distance(current_weight, cap, single_stock=policy.single_stock)
+    cap_payload = _holding_cap_payload(position, rules, policy)
     state = str(cap_payload.get("state") or "ok")
-    hard_cap_breach = state in {"urgent_review", "extreme"}
-    buy_blocked = state in {"hard_buy_block", "urgent_review", "extreme"}
+    hard_cap_breach = state in {"urgent_review", "extreme"} or bool(cap_payload.get("requiresTrimPlan"))
+    buy_blocked = bool(cap_payload.get("blocksNewBuys")) or state in {"hard_buy_block", "urgent_review", "extreme"}
     reason_code = "HOLD_WITHIN_POLICY"
     if position.get("valuation_status") == "missing_price":
         decision = "Wait For Data"
@@ -263,13 +342,15 @@ def _holding_decision(
         "capDistance": cap_payload,
         "policyState": state,
         "blocksNewBuys": buy_blocked,
-        "dataQuality": _position_data_quality(position, feature),
+        "dataQuality": _position_data_quality(position, feature, policy=policy, fundamentals_symbols=fundamentals_symbols),
         "blockers": [] if eligible else [reason],
         "trimPlan": None,
         "addPlan": None,
     }
     latest_price = float(position.get("latest_price") or 0)
     if decision == "Trim" and latest_price > 0 and total_value > 0:
+        trim_state = _trim_policy_state(state)
+        policy_threshold = threshold_for_state(policy.single_stock, trim_state)
         detail_payload["trimPlan"] = build_trim_plan(
             total_portfolio_value=total_value,
             current_position_value=float(position.get("market_value") or 0),
@@ -280,7 +361,7 @@ def _holding_decision(
             avg_cost=float(position.get("avg_cost") or 0),
             fractional_shares=True,
             compliance_mode="strict_below_threshold",
-            policy_threshold=float(policy.single_stock.hard_buy_block),
+            policy_threshold=float(policy_threshold),
         )
     if decision == "Add" and total_value > 0:
         sector = str(position.get("sector") or "Unknown")
@@ -317,6 +398,7 @@ def _opportunity_decision(
     total_value: float,
     sector_weights: dict[str, float],
     policy: RiskPolicy,
+    holdings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     target = target_weight_for_candidate(candidate, rules)
     sector = str(candidate.get("sector") or "Unknown")
@@ -327,22 +409,14 @@ def _opportunity_decision(
     source = _candidate_source(candidate)
     score = float(candidate.get("score") or 0)
     impact = evaluate_trade_impact(
-        {
-            "totalValue": total_value,
-            "positions": [
-                {"symbol": sym, "weight": weight, "sector": sec}
-                for sym, sec_weight_map in [(candidate.get("symbol"), None)]
-                for sec, weight in []
-            ],
-            "sectorWeights": dict(sector_weights),
-        },
+        _portfolio_snapshot(holdings, total_value, sector_weights),
         {
             "symbol": candidate.get("symbol", ""),
             "side": "buy",
             "weightDelta": target,
             "sector": sector,
             "assetClass": str(candidate.get("asset_class") or "").lower(),
-            "isBroadEtf": candidate.get("asset_class") == "ETF" and not candidate.get("is_thematic_etf"),
+            "isBroadEtf": bool(candidate.get("is_broad_etf") or (candidate.get("asset_class") == "ETF" and not candidate.get("is_thematic_etf"))),
             "isThematicEtf": bool(candidate.get("is_thematic_etf")),
         },
         policy,
@@ -410,6 +484,7 @@ def _opportunity_decision(
                 asset_class=str(candidate.get("asset_class") or "stock"),
                 coverage="complete",
                 sample=candidate.get("price_source") == "sample",
+                policy=policy,
             ),
             "blockers": blockers,
             "addPlan": add_plan,
@@ -429,15 +504,25 @@ def _deterministic_decision(conn, packet: dict[str, Any]) -> dict[str, Any]:
     total_value = float(real.get("total_value") or 0)
     sector_weights = _sector_weights_from_holdings(holdings)
     holding_symbols = {item["symbol"] for item in holdings}
+    fundamentals_symbols = set(latest_fundamentals(conn).keys())
     holding_items = [
-        _holding_decision(position, by_symbol.get(position["symbol"]), rules, total_value, sector_weights, policy)
+        _holding_decision(position, by_symbol.get(position["symbol"]), rules, total_value, sector_weights, policy, fundamentals_symbols)
         for position in holdings
     ]
     opportunities = []
     for candidate in features:
         if candidate["symbol"] in holding_symbols:
             continue
-        opportunities.append(_opportunity_decision(candidate, rules, total_value=total_value, sector_weights=sector_weights, policy=policy))
+        opportunities.append(
+            _opportunity_decision(
+                candidate,
+                rules,
+                total_value=total_value,
+                sector_weights=sector_weights,
+                policy=policy,
+                holdings=holdings,
+            )
+        )
         if len(opportunities) >= 10:
             break
     urgent_trims = [item for item in holding_items if item["decision"] == "Trim"]
@@ -493,94 +578,71 @@ def _deterministic_decision(conn, packet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_ai_decision(output_text: str) -> dict[str, Any]:
+def _parse_llm_review(output_text: str) -> dict[str, Any]:
     parsed = parse_model_json_object(output_text)
     if not isinstance(parsed, dict):
-        raise ValueError("Advisor decision response was not a JSON object.")
-    for field in DECISION_FIELDS:
+        raise ValueError("LLM review response was not a JSON object.")
+    for field in LLM_REVIEW_OUTPUT_SCHEMA["required"]:
         if field not in parsed:
-            raise ValueError(f"Advisor decision missing field: {field}")
+            raise ValueError(f"LLM review missing field: {field}")
     return parsed
 
 
-def _normalize_item(item: Any, fallback: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(item, dict):
-        item = {}
-    ai_reason = str(item.get("reason") or "").strip()
-    merged = {**fallback, **item}
-    merged["symbol"] = str(merged.get("symbol") or fallback["symbol"]).upper()
-    merged["decision"] = _decision_label(merged.get("decision"), fallback["decision"])
-    for key in ["plain_action", "reason", "confidence_label", "eligibility", "risk_check", "source_freshness", "ai_commentary"]:
-        merged[key] = str(merged.get(key) or fallback.get(key) or "")
-    merged["target_weight"] = float(merged.get("target_weight") or fallback.get("target_weight") or 0)
-    merged["current_weight"] = float(merged.get("current_weight") or fallback.get("current_weight") or 0)
-    merged["confidence_score"] = float(merged.get("confidence_score") or fallback.get("confidence_score") or 0)
-    merged["quant_evidence"] = _text_list(merged.get("quant_evidence") or fallback.get("quant_evidence"), 8)
-    merged["reason_code"] = str(fallback.get("reason_code") or "")
-    merged["detail_payload"] = fallback.get("detail_payload") or {}
-    if not merged["ai_commentary"] and ai_reason and ai_reason != fallback.get("reason"):
-        merged["ai_commentary"] = ai_reason
-    return merged
+def _apply_llm_review(
+    review: dict[str, Any],
+    deterministic: dict[str, Any],
+    review_packet: dict[str, Any],
+) -> dict[str, Any]:
+    first_action = review_packet.get("deterministicFirstAction") or {}
+    conflict = detect_decision_conflict(
+        review,
+        first_action.get("symbol"),
+        first_action.get("decision"),
+    )
+    narrative_blob = " ".join(
+        str(review.get(key) or "")
+        for key in ("headline", "executiveSummary", "userExplanation", "confidenceNarrative", "advisoryOnlyDisclosure")
+    )
+    forbidden = detect_forbidden_claims(narrative_blob)
 
+    holding_items = [dict(item) for item in deterministic["holding_decisions"]]
+    opportunity_items = [dict(item) for item in deterministic["opportunity_decisions"]]
+    commentary = str(review.get("userExplanation") or review.get("executiveSummary") or "").strip()
+    first_symbol = first_action.get("symbol")
+    if first_symbol and commentary:
+        for item in [*holding_items, *opportunity_items]:
+            if item["symbol"] == first_symbol:
+                item["ai_commentary"] = commentary
+                break
 
-def _enforce_decision(ai_decision: dict[str, Any], deterministic: dict[str, Any]) -> dict[str, Any]:
-    fallback_items = {
-        (item["item_type"], item["symbol"]): item
-        for item in [*deterministic["holding_decisions"], *deterministic["opportunity_decisions"]]
-    }
-    holding_ai = {str(item.get("symbol", "")).upper(): item for item in _as_list(ai_decision.get("holding_decisions")) if isinstance(item, dict)}
-    opportunity_ai = {str(item.get("symbol", "")).upper(): item for item in _as_list(ai_decision.get("opportunity_decisions")) if isinstance(item, dict)}
+    risks = _text_list(review.get("keyRisks") or deterministic.get("risks"), 8)
+    if conflict:
+        risks.insert(0, f"LLM conflict (logged, not merged): {conflict}")
+    if forbidden:
+        risks.append(f"Forbidden LLM phrasing flagged: {', '.join(forbidden)}")
 
-    holding_items = []
-    opportunity_items = []
-    for fallback in deterministic["holding_decisions"]:
-        item = _normalize_item(holding_ai.get(fallback["symbol"], {}), fallback)
-        hard_trim = fallback["decision"] == "Trim" and "risk cap" in fallback.get("reason", "").lower()
-        if hard_trim and item["decision"] != "Trim":
-            item["decision"] = "Trim"
-            item["plain_action"] = f"Trim {item['symbol']}"
-            item["target_weight"] = fallback["target_weight"]
-            item["confidence_label"] = fallback["confidence_label"]
-            item["reason"] = (
-                f"{fallback['reason']} Backend guardrail kept this as a trim because concentration rules are already breached."
-            )
-        if fallback["decision"] == "Hold" and item["decision"] == "Trim":
-            item["decision"] = "Hold"
-            item["plain_action"] = f"Hold {item['symbol']}"
-            item["target_weight"] = fallback["target_weight"]
-            item["confidence_label"] = fallback["confidence_label"]
-            item["reason"] = (
-                f"{fallback['reason']} Backend guardrail avoided a low-value trim because this position is not a hard risk breach."
-            )
-        if fallback["eligibility"] in {"fail", "needs_data"} and item["decision"] in {"Add", "Rotate", "Stagger Entry"}:
-            item["decision"] = "Wait For Data" if fallback["eligibility"] == "needs_data" else "Avoid"
-            item["plain_action"] = f"{item['decision']} {item['symbol']}"
-            item["reason"] = f"{item['reason']} Backend guardrail corrected this because eligibility is {fallback['eligibility']}."
-        holding_items.append(item)
-    for fallback in deterministic["opportunity_decisions"]:
-        item = _normalize_item(opportunity_ai.get(fallback["symbol"], {}), fallback)
-        if fallback["eligibility"] == "fail" and item["decision"] in {"Add", "Rotate", "Stagger Entry"}:
-            item["decision"] = "Avoid"
-            item["plain_action"] = f"Avoid {item['symbol']}"
-            item["reason"] = f"{item['reason']} Backend guardrail blocked approval because quant risk gate failed."
-        opportunity_items.append(item)
-
-    urgent_trims = [item for item in deterministic["holding_decisions"] if item["decision"] == "Trim"]
-    portfolio_verdict = str(ai_decision.get("portfolio_verdict") or deterministic["portfolio_verdict"])
-    if urgent_trims:
-        portfolio_verdict = str(deterministic["portfolio_verdict"])
+    execution_plan = _text_list(deterministic.get("execution_plan"), 8)
+    alternatives = _text_list(review.get("whyNotAlternatives"), 4)
+    if alternatives:
+        execution_plan = [*execution_plan, *alternatives][:8]
 
     return {
-        "portfolio_verdict": portfolio_verdict,
+        **deterministic,
+        "portfolio_verdict": str(review.get("headline") or review.get("executiveSummary") or deterministic["portfolio_verdict"]),
         "holding_decisions": holding_items,
         "opportunity_decisions": opportunity_items,
-        "execution_plan": _text_list(ai_decision.get("execution_plan") or deterministic["execution_plan"], 8),
-        "staggering_guidance": _text_list(ai_decision.get("staggering_guidance") or deterministic["staggering_guidance"], 6),
-        "entry_conditions": _text_list(ai_decision.get("entry_conditions") or deterministic["entry_conditions"], 8),
-        "risks": _text_list(ai_decision.get("risks") or deterministic["risks"], 8),
-        "data_used": _text_list(ai_decision.get("data_used") or deterministic["data_used"], 8),
-        "missing_data": _text_list(ai_decision.get("missing_data") or deterministic["missing_data"], 8),
-        "what_would_change_my_mind": _text_list(ai_decision.get("what_would_change_my_mind") or deterministic["what_would_change_my_mind"], 8),
+        "execution_plan": execution_plan,
+        "staggering_guidance": _text_list(deterministic.get("staggering_guidance"), 6),
+        "entry_conditions": _text_list(review.get("whyNow") or deterministic.get("entry_conditions"), 8),
+        "risks": risks[:8],
+        "data_used": _text_list(deterministic.get("data_used"), 8),
+        "missing_data": _text_list(review.get("dataLimitations") or deterministic.get("missing_data"), 8),
+        "what_would_change_my_mind": _text_list(review.get("followUpQuestions") or deterministic.get("what_would_change_my_mind"), 8),
+        "llm_review": {
+            **review,
+            "conflictLogged": conflict,
+            "forbiddenClaims": forbidden,
+        },
     }
 
 
@@ -754,14 +816,13 @@ def run_advisor_decision(conn, force: bool = False, mode: str = "standard") -> d
     payload = {
         "model": model,
         "instructions": (
-            "You are Signal PM's senior portfolio manager. Review the supplied compact LLM review packet and specialist summaries. Return strict JSON. "
-            "You must make clear portfolio decisions: Hold, Add, Trim, Rotate, Stagger Entry, Avoid, or Wait For Data. "
+            "You are Signal PM's senior portfolio manager. Review the supplied compact LLM review packet and specialist summaries. "
+            "Return strict JSON narrative only. You must NOT return holding_decisions, opportunity_decisions, target weights, trim shares, add plans, eligibility, or priority. "
+            "The deterministic engine already owns all executable actions. Explain, summarize, challenge, and critique only. "
             "Use only supplied data. Do not invent prices, news, filings, price targets, IPO facts, or forecasts. "
-            "You cannot approve an Add/Rotate/Stagger Entry where eligibility or risk gates fail. "
-            "You cannot override deterministic trim plans, add plans, or hard breach priorities. "
-            "Do not repeat every deterministic item; include only the holdings/opportunities where your critique materially changes priority or explanation, at most 2 holdings and 2 opportunities. "
-            "For each included item, include an ai_commentary sentence explaining your PM critique in plain English. "
-            "Return exactly these fields: portfolio_verdict, holding_decisions, opportunity_decisions, execution_plan, staggering_guidance, entry_conditions, risks, data_used, missing_data, what_would_change_my_mind."
+            "If you disagree with the deterministic first action, set deterministicDecisionConfirmed to false and explain in conflictWithDeterministicEngine. "
+            "Never claim guaranteed returns, execution, or that an order was placed. "
+            "Include advisoryOnlyDisclosure stating this is advisory-only and no order was placed."
         ),
         "input": _stable_json(
             {
@@ -773,14 +834,14 @@ def run_advisor_decision(conn, force: bool = False, mode: str = "standard") -> d
         ),
         "max_output_tokens": ai_settings["max_output_tokens"],
         "reasoning": {"effort": ai_settings["reasoning_effort"]},
-        "text": json_schema_text_format("advisor_decision", DECISION_JSON_SCHEMA, "Portfolio-level decision review."),
+        "text": json_schema_text_format("llm_review_output", LLM_REVIEW_OUTPUT_SCHEMA, "Narrative LLM review only."),
     }
     started_at = _now()
     response_payload: dict[str, Any] | None = None
     try:
         response_payload = _call_openai_response(payload, api_key)
-        parsed = _parse_ai_decision(_extract_output_text(response_payload))
-        decision = _enforce_decision(parsed, deterministic)
+        parsed = _parse_llm_review(_extract_output_text(response_payload))
+        decision = _apply_llm_review(parsed, deterministic, review_packet)
         tokens = _usage(response_payload)
         for key in specialist_tokens:
             tokens[key] = int(tokens.get(key) or 0) + int(specialist_tokens.get(key) or 0)

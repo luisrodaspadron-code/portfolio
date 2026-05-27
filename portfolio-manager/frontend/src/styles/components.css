@@ -2310,3 +2310,294 @@ a svg {
   0%, 100% { transform: translateX(-12%); opacity: 0.22; }
   50% { transform: translateX(12%); opacity: 0.5; }
 }
+
+/* Action timeline */
+.action-timeline {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.action-timeline-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.action-timeline-marker {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  color: var(--muted);
+}
+
+.action-timeline-marker span {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.action-timeline-body p {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.action-timeline-body code {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--mint);
+  font-size: 0.78rem;
+}
+
+.action-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.action-timeline-step.status-required .action-timeline-marker,
+.action-timeline-step.status-blocked .action-timeline-marker {
+  color: var(--danger);
+}
+
+.action-timeline-step.status-complete .action-timeline-marker,
+.action-timeline-step.status-allowed .action-timeline-marker {
+  color: var(--mint);
+}
+
+/* Decision map */
+.decision-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.decision-map-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.decision-map-node strong,
+.decision-map-node span,
+.decision-map-node em {
+  display: block;
+}
+
+.decision-map-node span {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.decision-map-node em {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.decision-map-node b {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 176, 84, 0.16);
+  color: var(--amber);
+  font-size: 0.72rem;
+}
+
+.decision-map-node.active {
+  border-color: rgba(255, 176, 84, 0.35);
+}
+
+.decision-map-node.blocked {
+  border-color: rgba(255, 96, 96, 0.35);
+}
+
+.decision-map-node.complete {
+  border-color: rgba(101, 255, 216, 0.24);
+}
+
+/* Competition brief */
+.competition-brief {
+  position: fixed;
+  inset: 5vh 50% auto 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  width: min(920px, calc(100vw - 24px));
+  max-height: 90vh;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: rgba(5, 10, 9, 0.98);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+  padding: var(--space-5);
+}
+
+.competition-brief > header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.competition-brief > header span {
+  display: block;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.competition-brief > header h2 {
+  margin: 6px 0;
+}
+
+.competition-brief > header p {
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.competition-brief-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.competition-brief-grid article {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.competition-brief-grid article.danger {
+  border-color: rgba(255, 96, 96, 0.35);
+}
+
+.competition-brief-grid article span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  font-weight: 900;
+}
+
+.competition-brief-grid article strong {
+  display: block;
+  margin-top: 6px;
+}
+
+.competition-brief-grid article p {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.competition-brief-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.competition-brief-judge {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(101, 255, 216, 0.2);
+  background: rgba(101, 255, 216, 0.05);
+}
+
+.competition-brief-judge span {
+  display: block;
+  color: var(--mint);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.competition-brief-judge p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.command-palette .cmdk-item kbd {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.holding-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: var(--space-3) 0;
+}
+
+.holding-detail-tabs button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.holding-detail-tabs button.active {
+  color: var(--mint);
+  border-color: rgba(101, 255, 216, 0.35);
+  background: rgba(101, 255, 216, 0.08);
+}
+
+.holding-detail-panel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ask-prompt-grid {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.review-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.review-checklist-list label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+
+.review-checklist.compact .review-checklist-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}

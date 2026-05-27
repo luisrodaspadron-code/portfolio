@@ -29,6 +29,20 @@ export function titleCase(value?: string | null) {
     .join(" ");
 }
 
+export function modelRouteLabel(value?: string | null) {
+  if (!value) return "";
+  const known: Record<string, string> = {
+    fast: "Fast",
+    specialist: "Specialist",
+    leadPM: "Lead PM",
+    lead_pm: "Lead PM",
+    deepCompetition: "Deep competition",
+    deep_competition: "Deep competition",
+  };
+  if (known[value]) return known[value];
+  return titleCase(value.replace(/([a-z])([A-Z])/g, "$1 $2"));
+}
+
 export function shortDateTime(value?: string | null) {
   if (!value) return "";
   return new Intl.DateTimeFormat("en-US", {

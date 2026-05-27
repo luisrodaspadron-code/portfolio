@@ -1,13 +1,15 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { AlertTriangle, BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
 import type { AdvisorRunStatus, Dashboard } from "../types";
-import { money, number, pct, shortDateTime, signedMoney, signedPct, titleCase } from "../lib/format";
+import { modelRouteLabel, money, number, pct, shortDateTime, signedMoney, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
 import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
+import { PortfolioImpactPreview } from "../components/visuals/PortfolioImpactPreview";
+import { DecisionMap } from "../components/visuals/DecisionMap";
 import { DecisionReceiptCard, trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
+import type { DisplayMode } from "../lib/displayModes";
 import { RunConsole } from "../components/advisor/RunConsole";
-import { CompareRunDrawer } from "../components/advisor/CompareRunDrawer";
 import { AdvisoryTicket } from "../components/advisor/AdvisoryTicket";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
 import { savePacketSnapshot } from "../lib/packetSnapshot";
@@ -72,7 +74,9 @@ export function HomeView({
   onNavigate,
   onAsk,
   onRunAdvisor,
-  onDeepReview
+  onDeepReview,
+  displayMode = "command",
+  onCompareOpenChange,
 }: {
   dashboard: Dashboard;
   busy: boolean;
@@ -81,10 +85,12 @@ export function HomeView({
   onAsk: (question?: string) => void;
   onRunAdvisor: () => void;
   onDeepReview?: () => void;
+  displayMode?: DisplayMode;
+  onCompareOpenChange?: (open: boolean) => void;
 }) {
   const decision = primaryDecision(dashboard);
-  const [compareOpen, setCompareOpen] = useState(false);
   const currentPacket = dashboard.advisor_packet;
+  const setCompareOpen = onCompareOpenChange ?? (() => undefined);
   const currentHash = currentPacket?.packetHash ?? "";
   useEffect(() => {
     if (currentPacket && currentHash) {
@@ -121,9 +127,12 @@ export function HomeView({
       ? `${titleCase(firstAction.action)} ${firstAction.symbol} before increasing single-stock exposure.`
       : "Run the advisor to generate today's command.");
   const dataLabel = titleCase(dashboard.data_freshness.provider_mode);
+  const focusMode = displayMode === "focus";
+  const researchMode = displayMode === "research" || displayMode === "presentation";
+  const presentationMode = displayMode === "presentation";
 
   return (
-    <section className="now-view now-decision-hub screen-enter mission-control">
+    <section className={`now-view now-decision-hub screen-enter mission-control ${presentationMode ? "presentation-mode" : ""}`}>
       <header className="mission-control-bar" data-testid="mission-control-header">
         <div className="mission-control-eyebrow">
           <strong>SIGNAL PRIME</strong>
@@ -187,7 +196,7 @@ export function HomeView({
                 >
                   {decision.primaryLabel}
                 </CommandButton>
-                <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal PM thinks I should do now and why.")}>
+                <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal Prime thinks I should do now and why.")}>
                   Ask Signal
                 </CommandButton>
               </div>
@@ -237,7 +246,8 @@ export function HomeView({
           <span>AI route</span>
           <strong>
             {dashboard.advisor_packet?.decisionReceipt?.modelRoute
-              ?? dashboard.ai_status.model_router.leadPM.model}
+              ? modelRouteLabel(dashboard.advisor_packet.decisionReceipt.modelRoute)
+              : dashboard.ai_status.model_router.leadPM.model}
           </strong>
           <p>
             {titleCase(dashboard.advisor_packet?.decisionReceipt?.reasoningEffort
@@ -254,6 +264,29 @@ export function HomeView({
         </article>
       </section>
 
+      {firstAction && real && !focusMode && (
+        <PortfolioImpactPreview
+          portfolio={real}
+          action={firstAction}
+          policy={selectedPolicy}
+          riskBreachCount={{
+            before: currentPacket.portfolioRisk.issueCount,
+            after: Math.max(0, currentPacket.portfolioRisk.issueCount - 1),
+          }}
+        />
+      )}
+
+      {!focusMode && (
+        <SignalPanel className="decision-map-panel">
+          <div className="panel-label-row">
+            <span>Decision map</span>
+            <Badge tone="neutral">Deterministic flow</Badge>
+          </div>
+          <DecisionMap dashboard={dashboard} />
+        </SignalPanel>
+      )}
+
+      {!focusMode && (
       <SignalPanel className="what-changed-panel">
         <div className="panel-label-row">
           <span>What changed since last review</span>
@@ -269,7 +302,9 @@ export function HomeView({
           ))}
         </div>
       </SignalPanel>
+      )}
 
+      {!focusMode && (
       <section className="operating-grid lean">
         <SignalPanel className="trend-panel">
           <div className="panel-label-row">
@@ -295,8 +330,10 @@ export function HomeView({
           onCompare={() => setCompareOpen(true)}
         />
       </section>
+      )}
 
-      <details className="now-audit-drawer">
+      {!focusMode && (
+      <details className="now-audit-drawer" open={researchMode ? presentationMode : undefined}>
         <summary>
           <span>Audit the packet</span>
           <Badge tone="neutral">{dashboard.decision_packet_status.tool_count} tools</Badge>
@@ -328,12 +365,7 @@ export function HomeView({
           </SignalPanel>
         </section>
       </details>
-
-      <CompareRunDrawer
-        open={compareOpen}
-        onOpenChange={setCompareOpen}
-        packet={currentPacket}
-      />
+      )}
 
       {firstAction && (
         <div className="mission-mobile-bar" data-testid="mission-mobile-bar" aria-label="Today's first advisory action">

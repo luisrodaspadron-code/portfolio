@@ -2785,9 +2785,28 @@
   align-items: start;
 }
 
+.decision-receipt-head > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.decision-receipt-head span,
+.decision-receipt-head strong {
+  display: block;
+}
+
+.decision-receipt-head strong {
+  line-height: 1.15;
+}
+
 .decision-receipt-footer {
   color: var(--text-muted);
   font-size: 0.92rem;
+}
+
+.decision-receipt-card.compact .receipt-math-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .receipt-timeline-item {

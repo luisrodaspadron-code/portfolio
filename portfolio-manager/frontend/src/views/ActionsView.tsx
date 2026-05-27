@@ -4,6 +4,8 @@ import type { AdvisorDecisionItem, Dashboard, Recommendation } from "../types";
 import { actionPriorityTone, recommendationLane } from "../lib/viewModels";
 import { money, pct, shortDateTime, titleCase } from "../lib/format";
 import { ActionImpactPreview } from "../components/visuals/ActionImpactPreview";
+import { ActionTimeline } from "../components/advisor/ActionTimeline";
+import { ReviewChecklist } from "../components/advisor/ReviewChecklist";
 import { DecisionReceiptCard } from "../components/advisor/DecisionReceiptCard";
 import { StaggerTimeline } from "../components/advisor/StaggerTimeline";
 import { Badge, CommandButton, DetailDrawer, EmptyState, SignalPanel } from "../components/ui/Primitives";
@@ -130,6 +132,16 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           )}
         </SignalPanel>
 
+        <SignalPanel className="action-timeline-panel">
+          <div className="panel-label-row">
+            <span>Action timeline</span>
+            <Badge tone="live">Operating plan</Badge>
+          </div>
+          <ActionTimeline dashboard={dashboard} />
+        </SignalPanel>
+
+        <ReviewChecklist />
+
         <details className="decision-receipt-drawer" open>
           <summary>
             <span>Decision receipt</span>
@@ -201,8 +213,22 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                   key={`packet-${item.symbol}`}
                   onClick={() => {
                     const existing = advisorDecision?.holding_decisions.find((row) => row.symbol === item.symbol);
+                    const packetDetail = {
+                      trimPlan: item.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"],
+                      addPlan: item.addPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["addPlan"]
+                    };
                     if (existing) {
-                      setSelectedDecision(existing);
+                      setSelectedDecision({
+                        ...existing,
+                        target_weight: item.targetWeight ?? existing.target_weight,
+                        current_weight: item.currentWeight ?? existing.current_weight,
+                        reason: item.explanation || existing.reason,
+                        reason_code: item.reasonCode || existing.reason_code,
+                        detail_payload: {
+                          ...(existing.detail_payload ?? {}),
+                          ...packetDetail,
+                        },
+                      });
                       return;
                     }
                     setSelectedDecision({
@@ -224,10 +250,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                       reason_code: item.reasonCode,
                       ai_commentary: "",
                       created_at: "",
-                      detail_payload: {
-                        trimPlan: item.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"],
-                        addPlan: item.addPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["addPlan"]
-                      }
+                      detail_payload: packetDetail
                     });
                   }}
                 >
@@ -259,8 +282,19 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           onAsk={onAsk}
           onSelect={(item) => {
             const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
+            const packetDetail = { addPlan: item.addPlan ?? undefined };
             if (existing) {
-              setSelectedDecision(existing);
+              setSelectedDecision({
+                ...existing,
+                target_weight: item.targetWeight ?? existing.target_weight,
+                current_weight: item.currentWeight ?? existing.current_weight,
+                reason: item.explanation || existing.reason,
+                reason_code: item.reasonCode || existing.reason_code,
+                detail_payload: {
+                  ...(existing.detail_payload ?? {}),
+                  ...packetDetail,
+                },
+              });
               return;
             }
             setSelectedDecision({
@@ -282,7 +316,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               reason_code: item.reasonCode,
               ai_commentary: "",
               created_at: "",
-              detail_payload: { addPlan: item.addPlan ?? undefined },
+              detail_payload: packetDetail,
             });
           }}
         />

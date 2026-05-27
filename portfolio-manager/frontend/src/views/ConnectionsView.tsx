@@ -416,7 +416,7 @@ export function ConnectionsView({
               save(openProvider, true);
             }}
           >
-            <p>Paste the key here once. Signal PM stores it locally, masks it in the UI, and never commits it to source.</p>
+            <p>Paste the key here once. Signal Prime stores it locally, masks it in the UI, and never commits it to source.</p>
             {openProvider.fields.map((field) => (
               <label key={field.key}>
                 <span>{field.label}</span>

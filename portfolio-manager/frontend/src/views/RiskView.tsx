@@ -207,7 +207,7 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
               <EmptyState title="No sector map yet" body="Import holdings to see theme pressure." />
             )}
           </div>
-          {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal PM labels missing metadata instead of inventing sector exposure.</p>}
+          {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal Prime labels missing metadata instead of inventing sector exposure.</p>}
         </SignalPanel>
       </section>
 

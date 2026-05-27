@@ -202,7 +202,7 @@ export function RunConsole({
           <h2>{busy ? currentRun?.current_step?.step ?? "Advisor is building the packet" : "Latest advisor cycle"}</h2>
           <p>
             {busy
-              ? currentRun?.current_step?.message ?? "Signal PM is checking data, scoring the universe, applying risk gates, and preparing the AI review."
+              ? currentRun?.current_step?.message ?? "Signal Prime is checking data, scoring the universe, applying risk gates, and preparing the AI review."
               : idleSummary}
           </p>
         </div>

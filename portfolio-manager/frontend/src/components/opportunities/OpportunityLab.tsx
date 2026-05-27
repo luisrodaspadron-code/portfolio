@@ -174,14 +174,22 @@ export function OpportunityLab({ candidates, onSelect, onAsk }: Props) {
                     const components = buildScoreComponents(candidate);
                     const score = totalScore(components);
                     return (
-                      <motion.button
+                      <motion.article
                         key={candidate.symbol}
                         className="opportunity-card"
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: idx * 0.04, duration: 0.28 }}
                         onClick={onSelect ? () => onSelect(candidate) : undefined}
-                        type="button"
+                        onKeyDown={(event) => {
+                          if (!onSelect) return;
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onSelect(candidate);
+                          }
+                        }}
+                        role={onSelect ? "button" : undefined}
+                        tabIndex={onSelect ? 0 : undefined}
                       >
                         <header>
                           <strong>{candidate.symbol}</strong>
@@ -213,7 +221,7 @@ export function OpportunityLab({ candidates, onSelect, onAsk }: Props) {
                             </CommandButton>
                           </footer>
                         )}
-                      </motion.button>
+                      </motion.article>
                     );
                   })}
                 </div>

@@ -5,7 +5,7 @@ function userSafeError(message: string) {
     return "OpenAI is rate-limiting this key right now. Quant-only fallback is active.";
   }
   if (/api\.openai\.com|httpx|traceback|client error/i.test(message)) {
-    return "A provider request failed. Signal PM is using local fallback data where possible.";
+    return "A provider request failed. Signal Prime is using local fallback data where possible.";
   }
   return message.replace(/For more information.*$/i, "").trim();
 }

@@ -1,6 +1,9 @@
 import * as Popover from "@radix-ui/react-popover";
-import { Activity, BriefcaseBusiness, KeyRound, ListChecks, Search, ShieldAlert, Sparkles } from "lucide-react";
+import { Activity, BarChart3, BriefcaseBusiness, KeyRound, ListChecks, Search, ShieldAlert, Sparkles } from "lucide-react";
+import type { SelectedPolicy } from "../../types";
 import { CommandButton, IconSlot, StatusDot, type UiIcon } from "../ui/Primitives";
+import { PolicySelectorChip } from "../policy/PolicySelectorChip";
+import { DISPLAY_MODES, type DisplayMode } from "../../lib/displayModes";
 import type { AppTab, TelemetryItem } from "../../lib/viewModels";
 
 export type NavItem = {
@@ -14,18 +17,19 @@ export const navItems: NavItem[] = [
   { id: "portfolio", label: "Portfolio", icon: BriefcaseBusiness },
   { id: "risks", label: "Risks", icon: ShieldAlert },
   { id: "actions", label: "Actions", icon: ListChecks },
+  { id: "research", label: "Research", icon: BarChart3 },
   { id: "connections", label: "Connections", icon: KeyRound }
 ];
 
 export function CommandRail({ activeTab, onTab }: { activeTab: AppTab; onTab: (tab: AppTab) => void }) {
   return (
-    <aside className="command-rail" aria-label="Signal PM navigation">
+    <aside className="command-rail" aria-label="Signal Prime navigation">
       <div className="signal-brand">
         <div className="signal-mark">
           <Sparkles size={20} />
         </div>
         <div>
-          <strong>Signal PM</strong>
+          <strong>Signal Prime</strong>
           <span>Private command</span>
         </div>
       </div>
@@ -48,8 +52,8 @@ export function CommandRail({ activeTab, onTab }: { activeTab: AppTab; onTab: (t
         })}
       </nav>
       <div className="rail-footer">
-        <span>Local-only</span>
-        <strong>No broker trading</strong>
+        <span>Private command</span>
+        <strong>Advisory review</strong>
       </div>
     </aside>
   );
@@ -60,13 +64,23 @@ export function TopTelemetry({
   onOpenPalette,
   onPrimaryAction,
   primaryLabel,
-  busy
+  busy,
+  selectedPolicy,
+  displayMode,
+  onDisplayMode,
+  onPolicyChanged,
+  onPolicyError,
 }: {
   items: TelemetryItem[];
   onOpenPalette: () => void;
   onPrimaryAction: () => void;
   primaryLabel: string;
   busy: boolean;
+  selectedPolicy: SelectedPolicy | null;
+  displayMode: DisplayMode;
+  onDisplayMode: (mode: DisplayMode) => void;
+  onPolicyChanged: (message: string) => Promise<void>;
+  onPolicyError: (message: string) => void;
 }) {
   return (
     <header className="top-telemetry" data-testid="top-telemetry">
@@ -75,7 +89,22 @@ export function TopTelemetry({
         <span>Command</span>
         <kbd>⌘K</kbd>
       </button>
-      <div className="telemetry-items" aria-label="Live system telemetry">
+      <PolicySelectorChip current={selectedPolicy} onChanged={onPolicyChanged} onError={onPolicyError} />
+      <div className="display-mode-toggle" role="group" aria-label="Display mode">
+        {DISPLAY_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            className={displayMode === mode.id ? "active" : ""}
+            title={mode.detail}
+            aria-pressed={displayMode === mode.id}
+            onClick={() => onDisplayMode(mode.id)}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+      <div className="telemetry-items" aria-label="System health">
         {items.map((item) => (
           <Popover.Root key={item.label}>
             <Popover.Trigger asChild>
@@ -90,6 +119,11 @@ export function TopTelemetry({
                 <span>{item.label}</span>
                 <strong>{item.value}</strong>
                 <p>{item.detail}</p>
+                {item.actionLabel && item.onAction && (
+                  <button type="button" className="telemetry-popover-action" onClick={item.onAction}>
+                    {item.actionLabel}
+                  </button>
+                )}
                 <Popover.Arrow className="telemetry-popover-arrow" />
               </Popover.Content>
             </Popover.Portal>
@@ -108,7 +142,8 @@ export function MobileDock({ activeTab, onTab }: { activeTab: AppTab; onTab: (ta
     <nav className="mobile-dock" aria-label="Mobile primary navigation" data-testid="mobile-dock">
       {navItems.map((item) => {
         const IconComponent = item.icon;
-        const mobileLabel = item.id === "connections" ? "Connect" : item.label;
+        const mobileLabel =
+          item.id === "connections" ? "Connect" : item.id === "research" ? "Research" : item.label;
         return (
           <button
             key={item.id}

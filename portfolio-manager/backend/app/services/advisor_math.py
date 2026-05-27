@@ -13,6 +13,7 @@ TrimComplianceMode = Literal["strict_below_threshold", "reduce_only", "tax_aware
 
 
 from app.services.policy_engine import (
+    RiskPolicy,
     SingleStockPolicy,
     build_cap_distance as _policy_cap_distance,
     policy_state_for_weight,
@@ -116,6 +117,7 @@ def data_quality_from_price(
     asset_class: str = "stock",
     coverage: Coverage = "complete",
     sample: bool = False,
+    policy: RiskPolicy | None = None,
 ) -> dict[str, Any]:
     received = _parse_timestamp(received_at or _now()) or datetime.now(timezone.utc)
     source = _parse_timestamp(source_timestamp)
@@ -132,8 +134,12 @@ def data_quality_from_price(
             warnings=["No usable price timestamp is available."],
         ).to_dict()
     age = max(0, int((received - source).total_seconds()))
-    live_limit = DEFAULT_RISK_POLICY["minPriceFreshnessSecondsCryptoLive"] if asset_class.lower() == "crypto" else DEFAULT_RISK_POLICY["minPriceFreshnessSecondsEquityLive"]
-    recent_limit = DEFAULT_RISK_POLICY["minPriceFreshnessSecondsEquityRecent"]
+    if policy is not None:
+        live_limit = policy.data_quality.crypto_live_seconds if asset_class.lower() == "crypto" else policy.data_quality.equity_live_seconds
+        recent_limit = policy.data_quality.equity_recent_seconds
+    else:
+        live_limit = DEFAULT_RISK_POLICY["minPriceFreshnessSecondsCryptoLive"] if asset_class.lower() == "crypto" else DEFAULT_RISK_POLICY["minPriceFreshnessSecondsEquityLive"]
+        recent_limit = DEFAULT_RISK_POLICY["minPriceFreshnessSecondsEquityRecent"]
     if sample:
         freshness: Freshness = "stale"
         confidence = 0.35

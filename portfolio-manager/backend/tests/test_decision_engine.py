@@ -1,5 +1,7 @@
 import json
 
+from math import ceil
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -122,6 +124,7 @@ def test_advisor_decision_prompt_and_risk_gate_enforcement(tmp_path, monkeypatch
 
     get_settings.cache_clear()
     from app.services import decision_service
+    from app.services.llm_review_output import LLM_REVIEW_OUTPUT_SCHEMA
 
     monkeypatch.setattr(decision_service, "run_specialist_agents", lambda conn, packet, review: ({}, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}, []))
 
@@ -146,31 +149,23 @@ def test_advisor_decision_prompt_and_risk_gate_enforcement(tmp_path, monkeypatch
         assert "specialist_summaries" in context
         review = context["llm_review_packet"]
         assert review.get("deterministicFirstAction")
-        deterministic = deterministic_snapshot
-        first_opportunity = deterministic["opportunity_decisions"][0] if deterministic["opportunity_decisions"] else None
-        opportunity_payload = []
-        if first_opportunity:
-            opportunity_payload = [
-                {
-                    **first_opportunity,
-                    "decision": "Add" if first_opportunity["eligibility"] == "fail" else "Stagger Entry",
-                    "ai_commentary": "AI reviewed quant evidence and source freshness.",
-                }
-            ]
+        first_action = review["deterministicFirstAction"]
         return {
             "id": "resp_decision",
             "output_text": json.dumps(
                 {
-                    "portfolio_verdict": "Keep the portfolio mostly intact, but stage one eligible add.",
-                    "holding_decisions": deterministic["holding_decisions"],
-                    "opportunity_decisions": opportunity_payload,
-                    "execution_plan": ["Use 3 tranches.", "No automatic trades."],
-                    "staggering_guidance": ["Stage entries unless data turns stale."],
-                    "entry_conditions": ["Fresh data and risk gates must still pass."],
-                    "risks": ["Sample data lowers confidence."],
-                    "data_used": ["advisor packet", "risk gates", "market universe"],
-                    "missing_data": [],
-                    "what_would_change_my_mind": ["Risk gate failure."],
+                    "headline": "Prioritize concentration remediation before new adds.",
+                    "executiveSummary": "META concentration dominates the risk picture.",
+                    "userExplanation": "The deterministic trim on META is the right first move given breach severity.",
+                    "keyRisks": ["Sample data lowers confidence."],
+                    "whyNow": ["Hard concentration breaches should be addressed first."],
+                    "whyNotAlternatives": ["New adds remain blocked until concentration improves."],
+                    "dataLimitations": ["Sample-only prices reduce sizing confidence."],
+                    "followUpQuestions": ["Would a staged trim schedule fit your tax constraints?"],
+                    "confidenceNarrative": "Moderate confidence until live data is connected.",
+                    "deterministicDecisionConfirmed": False,
+                    "conflictWithDeterministicEngine": "Would prefer a slower trim cadence, but concentration breach is real.",
+                    "advisoryOnlyDisclosure": "Advisory-only · no order placed.",
                 }
             ),
             "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
@@ -185,11 +180,25 @@ def test_advisor_decision_prompt_and_risk_gate_enforcement(tmp_path, monkeypatch
     decision = response.json()["advisor_decision"]
     assert seen_payloads[0]["model"] == "gpt-5.5"
     assert seen_payloads[0]["reasoning"] == {"effort": "medium"}
+    schema_name = seen_payloads[0]["text"]["format"]["name"]
+    assert schema_name == "llm_review_output"
+    assert set(LLM_REVIEW_OUTPUT_SCHEMA["required"]).issubset(
+        set(seen_payloads[0]["text"]["format"]["schema"]["properties"].keys())
+    )
     assert decision["status"] == "success"
     assert decision["holding_decisions"]
     assert decision["portfolio_verdict"]
     assert decision["total_tokens"] == 150
+    meta = next(item for item in decision["holding_decisions"] if item["symbol"] == "META")
+    assert meta["decision"] == "Trim"
+    assert meta["ai_commentary"]
+    assert any("LLM conflict" in risk for risk in decision["risks"])
     assert all(item["decision"] in {"Hold", "Add", "Trim", "Rotate", "Stagger Entry", "Avoid", "Wait For Data"} for item in decision["opportunity_decisions"])
+    failed_opportunities = [item for item in deterministic_snapshot["opportunity_decisions"] if item["eligibility"] == "fail"]
+    for fallback in failed_opportunities:
+        current = next((item for item in decision["opportunity_decisions"] if item["symbol"] == fallback["symbol"]), None)
+        if current:
+            assert current["decision"] not in {"Add", "Stagger Entry", "Rotate"}
 
 
 def test_malformed_ai_decision_falls_back_safely(tmp_path, monkeypatch):
@@ -343,21 +352,22 @@ def test_live_eval_endpoint_uses_decision_and_copilot_with_tokens(tmp_path, monk
         deterministic_snapshot = decision_service._deterministic_decision(conn, packet)
 
     def decision_response(payload, api_key):
-        deterministic = deterministic_snapshot
         return {
             "id": "decision",
             "output_text": json.dumps(
                 {
-                    "portfolio_verdict": "Hold current positions and stagger only eligible adds.",
-                    "holding_decisions": deterministic["holding_decisions"],
-                    "opportunity_decisions": deterministic["opportunity_decisions"][:2],
-                    "execution_plan": ["Hold, then stagger entries."],
-                    "staggering_guidance": ["Use tranches."],
-                    "entry_conditions": ["Fresh data."],
-                    "risks": ["Risk and data freshness matter."],
-                    "data_used": ["quant tools", "risk gates"],
-                    "missing_data": [],
-                    "what_would_change_my_mind": ["Weakening momentum."],
+                    "headline": "Hold current positions and stagger only eligible adds.",
+                    "executiveSummary": "Deterministic actions remain the source of truth.",
+                    "userExplanation": "Hold current positions and stagger only eligible adds.",
+                    "keyRisks": ["Risk and data freshness matter."],
+                    "whyNow": ["Fresh data."],
+                    "whyNotAlternatives": ["Hold, then stagger entries."],
+                    "dataLimitations": [],
+                    "followUpQuestions": ["Weakening momentum."],
+                    "confidenceNarrative": "Constructive with current sample data.",
+                    "deterministicDecisionConfirmed": True,
+                    "conflictWithDeterministicEngine": None,
+                    "advisoryOnlyDisclosure": "Advisory-only · no order placed.",
                 }
             ),
             "usage": {"input_tokens": 10, "output_tokens": 10, "total_tokens": 20},
@@ -423,14 +433,35 @@ def test_sample_portfolio_full_deterministic_expectations(tmp_path, monkeypatch)
     holdings = {item["symbol"]: item for item in decision["holding_decisions"]}
 
     assert holdings["META"]["decision"] == "Trim"
-    assert holdings["META"]["reason_code"] in {"SINGLE_NAME_CAP_BREACH", "SINGLE_NAME_EXTREME", "SINGLE_NAME_URGENT_REVIEW"}
-    assert holdings["META"]["detail_payload"]["trimPlan"]["estimatedSellValue"] > 0
-    for symbol in ("NEE", "RTX"):
-        assert holdings[symbol]["decision"] in {"Trim", "Wait For Data", "Hold"}, symbol
+    assert holdings["META"]["reason_code"] == "SINGLE_NAME_EXTREME"
+    trim_plan = holdings["META"]["detail_payload"]["trimPlan"]
+    assert trim_plan["estimatedSellValue"] > 0
+    assert trim_plan["complianceMode"] == "strict_below_threshold"
+    assert trim_plan["sharesToSellWholeCompliant"] == ceil(trim_plan["sharesToSellExact"])
+    for field in (
+        "sharesToSellExact",
+        "sharesToSellWholeCompliant",
+        "sharesToSellWholeReduceOnly",
+        "sharesToSellFractionalCompliant",
+        "estimatedPostWeightCompliant",
+        "estimatedPostWeightReduceOnly",
+        "complianceMode",
+        "wouldRemainAboveThresholdIfRoundedDown",
+    ):
+        assert field in trim_plan, field
 
+    assert holdings["NEE"]["reason_code"] in {"SINGLE_NAME_URGENT_REVIEW", "SINGLE_NAME_HARD_BUY_BLOCK", "SINGLE_NAME_CAP_BREACH"}
+    assert holdings["RTX"]["reason_code"] in {"SINGLE_NAME_URGENT_REVIEW", "SINGLE_NAME_HARD_BUY_BLOCK", "SINGLE_NAME_CAP_BREACH"}
     assert holdings["VST"]["decision"] in {"Trim", "Wait For Data", "Hold"}
+    assert holdings["VST"]["reason_code"] in {
+        "SINGLE_NAME_WARNING",
+        "SINGLE_NAME_HARD_BUY_BLOCK",
+        "SINGLE_NAME_URGENT_REVIEW",
+        "INSUFFICIENT_HISTORY",
+    }
     assert holdings["MSFT"]["decision"] in {"Hold", "Wait For Data"}
     assert holdings["CCJ"]["decision"] in {"Wait For Data", "Hold", "Trim"}
+    assert holdings["CCJ"]["detail_payload"]["dataQuality"]["coverage"] == "partial"
     assert packet["recommendedPriority"]["firstAction"]["symbol"] == "META"
     assert packet["decisionReceipt"]["sizingMath"]["estimatedSellValue"] > 22000
     assert len(packet["portfolioRisk"]["singleNameBreaches"]) >= 1
