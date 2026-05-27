@@ -133,12 +133,50 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
     price_row = _row("SELECT MAX(date) AS latest, COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols FROM price_bars")
     macro_row = _row("SELECT MAX(date) AS latest, COUNT(*) AS rows FROM macro_series")
     fundamentals_row = _row("SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols FROM fundamental_facts")
-    universe_row = _row("SELECT COUNT(*) AS rows, SUM(included) AS included FROM universe_assets")
+    universe_row = _row("SELECT COUNT(*) AS rows, SUM(included) AS included, MAX(last_seen_at) AS latest FROM universe_assets")
     factor_row = _row("SELECT COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols, MAX(snapshot_date) AS latest FROM factor_snapshots")
-    refresh_row = _row("SELECT provider, status, finished_at, message FROM provider_refreshes ORDER BY id DESC LIMIT 1")
+    liquidity_row = _row(
+        """
+        SELECT
+            MAX(date) AS latest,
+            COUNT(*) AS rows,
+            COUNT(DISTINCT symbol) AS symbols,
+            SUM(CASE WHEN volume > 0 THEN 1 ELSE 0 END) AS volume_rows,
+            SUM(CASE WHEN close * volume >= ? THEN 1 ELSE 0 END) AS liquid_rows
+        FROM price_bars
+        """,
+        (policy.liquidity.min_dollar_volume_default,),
+    )
+    portfolio_row = _row(
+        """
+        SELECT
+            p.id,
+            p.cash,
+            p.created_at,
+            COUNT(pos.id) AS positions,
+            COUNT(DISTINCT pos.symbol) AS symbols,
+            SUM(CASE WHEN pos.source = 'csv_import' THEN 1 ELSE 0 END) AS imported_rows,
+            SUM(CASE WHEN pos.avg_cost > 0 THEN 1 ELSE 0 END) AS cost_rows
+        FROM portfolios p
+        LEFT JOIN positions pos ON pos.portfolio_id = p.id
+        WHERE p.mode = 'real'
+        GROUP BY p.id
+        ORDER BY p.id
+        LIMIT 1
+        """
+    )
+    latest_ai_row = _row("SELECT * FROM ai_runs ORDER BY id DESC LIMIT 1")
 
     price_count_rows = conn.execute("SELECT source, COUNT(*) AS rows FROM price_bars GROUP BY source").fetchall() if price_row else []
     price_source_counts = {item["source"]: int(item["rows"] or 0) for item in price_count_rows}
+    non_sample_price_counts = {source: count for source, count in price_source_counts.items() if source != "sample" and count > 0}
+    price_provider = (
+        max(non_sample_price_counts.items(), key=lambda item: item[1])[0]
+        if non_sample_price_counts
+        else "sample"
+        if price_source_counts.get("sample", 0)
+        else "unknown"
+    )
 
     price_provider_mode = provider_mode_for_prices(
         (price_row or {}).get("latest") if price_row else None,
@@ -153,28 +191,136 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
             return None
         return max(0, int((now - parsed).total_seconds()))
 
+    def _slow_source_freshness(value: str | None, *, has_data: bool) -> Freshness:
+        age = _ts_age(value)
+        if not has_data or age is None:
+            return "missing"
+        if age <= 45 * 86_400:
+            return "recent"
+        return "stale"
+
+    def _confidence(freshness: str, coverage: str, *, configured: bool = True, used: bool = False) -> float:
+        freshness_score = {
+            "live": 1.0,
+            "recent": 0.86,
+            "partial": 0.62,
+            "stale": 0.35,
+            "missing": 0.0,
+        }.get(freshness, 0.0)
+        coverage_score = {
+            "complete": 1.0,
+            "partial": 0.7,
+            "insufficient": 0.35,
+            "missing": 0.0,
+        }.get(coverage, 0.0)
+        score = freshness_score * 0.6 + coverage_score * 0.4
+        if not configured and not used:
+            score *= 0.55
+        return round(max(0.0, min(score, 1.0)), 2)
+
+    def _finalize(entry: dict[str, Any], *, configured: bool = True) -> dict[str, Any]:
+        freshness = str(entry.get("freshness") or "missing")
+        coverage = str(entry.get("coverage") or "missing")
+        entry.setdefault("configured", configured)
+        entry.setdefault("confidence", _confidence(freshness, coverage, configured=configured, used=bool(entry.get("usedInRun"))))
+        entry.setdefault("warnings", [])
+        entry.setdefault("usedInLatestRun", bool(entry.get("usedInRun")))
+        return entry
+
+    try:
+        from app.services.ai_service import ai_status
+
+        ai = ai_status(conn)
+    except Exception:
+        ai = {
+            "configured": False,
+            "state": "disabled",
+            "model": "",
+            "model_router": {},
+            "settings": {},
+            "usage_totals": {},
+            "last_run": None,
+        }
+
+    latest_ai_timestamp = (latest_ai_row or {}).get("finished_at") if latest_ai_row else None
+    ai_state = str(ai.get("state") or "disabled")
+    ai_configured = bool(ai.get("configured"))
+    ai_used = bool(latest_ai_row and (latest_ai_row or {}).get("status") == "success")
+    ai_freshness = "recent" if ai_used else "partial" if ai_configured else "missing"
+    lead_route = (ai.get("model_router") or {}).get("leadPM") or {}
+    specialist_route = (ai.get("model_router") or {}).get("specialist") or {}
+    fast_route = (ai.get("model_router") or {}).get("fast") or {}
+
+    liquidity_rows = int((liquidity_row or {}).get("rows") or 0) if liquidity_row else 0
+    liquid_rows = int((liquidity_row or {}).get("liquid_rows") or 0) if liquidity_row else 0
+    volume_rows = int((liquidity_row or {}).get("volume_rows") or 0) if liquidity_row else 0
+    liquidity_coverage = (
+        "complete"
+        if liquidity_rows and liquid_rows / liquidity_rows >= 0.85
+        else "partial"
+        if liquidity_rows and volume_rows
+        else "missing"
+    )
+    fundamentals_count = int((fundamentals_row or {}).get("rows") or 0) if fundamentals_row else 0
+    portfolio_positions = int((portfolio_row or {}).get("positions") or 0) if portfolio_row else 0
+    portfolio_cost_rows = int((portfolio_row or {}).get("cost_rows") or 0) if portfolio_row else 0
+    macro_rows = int((macro_row or {}).get("rows") or 0) if macro_row else 0
+    macro_freshness = _slow_source_freshness((macro_row or {}).get("latest") if macro_row else None, has_data=bool(macro_rows))
+    price_rows = int((price_row or {}).get("rows") or 0) if price_row else 0
+    price_symbols = int((price_row or {}).get("symbols") or 0) if price_row else 0
+    price_coverage = "complete" if price_symbols >= portfolio_positions and portfolio_positions else "partial" if price_rows else "missing"
+    price_warnings: list[str] = []
+    if price_provider_mode == "stale":
+        price_warnings.append("Market prices are stale under the selected policy; sizing should be reviewed against a fresh quote.")
+    if price_provider == "sample" or "synthetic" in price_provider.lower():
+        price_warnings.append("Market prices are from a local fixture/sample source; refresh a configured market-data provider before acting.")
+    liquidity_warnings: list[str] = []
+    if not (liquidity_rows and volume_rows):
+        liquidity_warnings.append("No usable volume rows are available; liquidity gates degrade to conservative defaults.")
+    elif price_provider_mode == "stale":
+        liquidity_warnings.append("Liquidity inputs are based on stale price/volume rows.")
+    if price_provider == "sample" or "synthetic" in price_provider.lower():
+        liquidity_warnings.append("Liquidity is derived from local fixture/sample data, not a live provider.")
+    ai_warnings: list[str] = []
+    if not ai_configured:
+        ai_warnings.append("AI narrative review is disabled; deterministic quant-only fallback remains active.")
+    elif not ai_used:
+        ai_warnings.append("The latest AI run did not complete successfully; deterministic quant-only fallback remains active.")
+
     matrix = {
         "prices": {
-            "provider": (refresh_row or {}).get("provider") if refresh_row else "unknown",
+            "provider": price_provider,
             "fallback": "sample",
             "latestTimestamp": (price_row or {}).get("latest") if price_row else None,
             "ageSeconds": _ts_age((price_row or {}).get("latest") if price_row else None),
-            "recordCount": int((price_row or {}).get("rows") or 0) if price_row else 0,
-            "symbolCount": int((price_row or {}).get("symbols") or 0) if price_row else 0,
+            "recordCount": price_rows,
+            "symbolCount": price_symbols,
             "freshness": price_provider_mode,
-            "coverage": "complete" if price_provider_mode in {"live", "recent"} else "partial" if price_provider_mode == "partial" else "missing",
+            "coverage": price_coverage,
             "usedInRun": price_provider_mode != "missing",
-            "warnings": [],
+            "warnings": price_warnings,
+        },
+        "liquidity": {
+            "provider": price_provider if price_provider != "unknown" else "price_bars",
+            "fallback": "volume_from_price_bars",
+            "latestTimestamp": (liquidity_row or {}).get("latest") if liquidity_row else None,
+            "ageSeconds": _ts_age((liquidity_row or {}).get("latest") if liquidity_row else None),
+            "recordCount": liquidity_rows,
+            "symbolCount": int((liquidity_row or {}).get("symbols") or 0) if liquidity_row else 0,
+            "freshness": price_provider_mode if liquidity_rows else "missing",
+            "coverage": liquidity_coverage,
+            "usedInRun": bool(liquidity_rows and price_provider_mode != "missing"),
+            "warnings": liquidity_warnings,
         },
         "macro": {
             "provider": "fred",
             "fallback": "manual",
             "latestTimestamp": (macro_row or {}).get("latest") if macro_row else None,
             "ageSeconds": _ts_age((macro_row or {}).get("latest") if macro_row else None),
-            "recordCount": int((macro_row or {}).get("rows") or 0) if macro_row else 0,
-            "freshness": "live" if (macro_row and (macro_row or {}).get("rows")) else "missing",
-            "coverage": "partial" if macro_row and (macro_row or {}).get("rows") else "missing",
-            "usedInRun": bool(macro_row and (macro_row or {}).get("rows")),
+            "recordCount": macro_rows,
+            "freshness": macro_freshness,
+            "coverage": "partial" if macro_rows else "missing",
+            "usedInRun": bool(macro_rows),
             "warnings": [],
         },
         "fundamentals": {
@@ -187,12 +333,31 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
             "usedInRun": bool(fundamentals_row and (fundamentals_row or {}).get("rows")),
             "warnings": ["SEC company facts may not cover foreign issuers; partial fundamentals do not automatically block analysis."],
         },
+        "filings": {
+            "provider": "sec_edgar",
+            "fallback": "company_facts_cache",
+            "recordCount": fundamentals_count,
+            "symbolCount": int((fundamentals_row or {}).get("symbols") or 0) if fundamentals_row else 0,
+            "freshness": "recent" if fundamentals_count else "missing",
+            "coverage": "partial" if fundamentals_count else "missing",
+            "usedInRun": bool(fundamentals_count),
+            "warnings": [
+                "Raw filings index is not fully cached; structured company facts are used where SEC coverage exists."
+            ]
+            if fundamentals_count
+            else ["SEC filings/company-facts coverage is missing for this local dataset."],
+        },
         "universe": {
             "provider": "alpaca_assets",
             "fallback": "sample",
             "recordCount": int((universe_row or {}).get("rows") or 0) if universe_row else 0,
             "includedCount": int((universe_row or {}).get("included") or 0) if universe_row else 0,
-            "freshness": "live" if universe_row and (universe_row or {}).get("included") else "missing",
+            "latestTimestamp": (universe_row or {}).get("latest") if universe_row else None,
+            "ageSeconds": _ts_age((universe_row or {}).get("latest") if universe_row else None),
+            "freshness": _slow_source_freshness(
+                (universe_row or {}).get("latest") if universe_row else None,
+                has_data=bool(universe_row and (universe_row or {}).get("included")),
+            ),
             "coverage": "complete" if universe_row and (universe_row or {}).get("included") else "missing",
             "usedInRun": bool(universe_row and (universe_row or {}).get("included")),
             "warnings": [],
@@ -232,6 +397,41 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
             "usedInRun": False,
             "warnings": ["Crypto data is disabled by default and requires explicit user enablement."],
         },
+        "portfolioState": {
+            "provider": "local_portfolio",
+            "fallback": "manual_import",
+            "latestTimestamp": (portfolio_row or {}).get("created_at") if portfolio_row else None,
+            "ageSeconds": _ts_age((portfolio_row or {}).get("created_at") if portfolio_row else None),
+            "recordCount": portfolio_positions,
+            "symbolCount": int((portfolio_row or {}).get("symbols") or 0) if portfolio_row else 0,
+            "freshness": "live" if portfolio_positions else "missing",
+            "coverage": "complete"
+            if portfolio_positions and portfolio_cost_rows >= portfolio_positions
+            else "partial"
+            if portfolio_positions
+            else "missing",
+            "usedInRun": bool(portfolio_positions),
+            "warnings": []
+            if portfolio_positions
+            else ["No real-money holdings are loaded; portfolio-specific gates cannot fully run."],
+        },
+        "ai": {
+            "provider": "openai" if ai_configured else "not_configured",
+            "fallback": "quant_only",
+            "latestTimestamp": latest_ai_timestamp,
+            "ageSeconds": _ts_age(latest_ai_timestamp),
+            "recordCount": int((ai.get("usage_totals") or {}).get("calls") or 0),
+            "freshness": ai_freshness,
+            "coverage": "complete" if ai_used else "partial" if ai_configured else "missing",
+            "usedInRun": ai_used,
+            "state": ai_state,
+            "leadModel": lead_route.get("model") or "",
+            "leadReasoningEffort": lead_route.get("reasoningEffort") or "",
+            "specialistModel": specialist_route.get("model") or "",
+            "fastModel": fast_route.get("model") or "",
+            "promptVersion": lead_route.get("promptVersion") or "",
+            "warnings": ai_warnings,
+        },
         "telemetry": {
             "provider": "internal",
             "fallback": "manual",
@@ -241,6 +441,7 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
             "warnings": [],
         },
     }
+    matrix = {key: _finalize(value, configured=value.get("provider") != "not_configured") for key, value in matrix.items()}
     return {
         "generatedAt": now.isoformat(),
         "policyVersion": policy.version,
@@ -251,5 +452,14 @@ def build_source_matrix(conn, *, policy: RiskPolicy | None = None) -> dict[str, 
             "macroAvailable": matrix["macro"]["usedInRun"],
             "fundamentalsPartial": matrix["fundamentals"]["coverage"] == "partial",
             "cryptoEnabled": policy.crypto.enabled_by_default,
+            "requiredClassesCovered": {
+                "marketPricesAndLiquidity": matrix["prices"]["usedInRun"] and matrix["liquidity"]["usedInRun"],
+                "fundamentalsAndFilings": matrix["fundamentals"]["usedInRun"] or matrix["filings"]["usedInRun"],
+                "macroRegime": matrix["macro"]["usedInRun"],
+                "factorBenchmarks": matrix["factors"]["usedInRun"],
+                "eventOpportunity": matrix["events"]["usedInRun"] or matrix["ipoCalendar"]["usedInRun"],
+                "portfolioUserState": matrix["portfolioState"]["usedInRun"],
+                "telemetryAudit": matrix["telemetry"]["usedInRun"],
+            },
         },
     }

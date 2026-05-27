@@ -13,6 +13,7 @@ const FRIENDLY: Record<string, { label: string; description: string }> = {
   events: { label: "Events", description: "News, earnings, and event-driven inputs (optional)." },
   ipoCalendar: { label: "IPO calendar", description: "Recent IPOs used for limited-history playbooks." },
   cryptoMetadata: { label: "Crypto", description: "Crypto data (disabled by default per policy)." },
+  portfolioState: { label: "Portfolio state", description: "Local holdings, cash, average cost, and import provenance." },
   ai: { label: "AI / LLM", description: "Model routes, reasoning effort, and prompt versions." },
   telemetry: { label: "Telemetry", description: "Local-only run telemetry and audit trail." },
 };

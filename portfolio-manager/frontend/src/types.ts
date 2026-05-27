@@ -421,7 +421,10 @@ export type SourceMatrixEntry = {
   latestTimestamp?: string | null;
   freshness?: string;
   coverage?: string;
+  confidence?: number;
+  configured?: boolean;
   usedInRun?: boolean;
+  usedInLatestRun?: boolean;
   warnings?: string[];
   [key: string]: unknown;
 };
@@ -431,7 +434,7 @@ export type SourceMatrix = {
   policyVersion: string;
   selectedPreset: string;
   matrix: Record<string, SourceMatrixEntry>;
-  summary: Record<string, number | string | boolean>;
+  summary: Record<string, number | string | boolean | Record<string, boolean>>;
 };
 
 export type TrimPlan = {

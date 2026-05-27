@@ -93,7 +93,13 @@ def test_v9_mission_control_contract_fields(tmp_path, monkeypatch):
     matrix = packet["sourceMatrix"]["matrix"]
     assert isinstance(matrix, dict)
     assert "prices" in matrix
+    assert "liquidity" in matrix
+    assert "filings" in matrix
+    assert "portfolioState" in matrix
+    assert "ai" in matrix
     assert "telemetry" in matrix
+    assert matrix["portfolioState"]["usedInRun"] is True
+    assert 0 <= matrix["prices"]["confidence"] <= 1
     # Compare drawer reads policy + blocked actions from the receipt
     assert receipt["selectedPolicy"]
     assert receipt["packetHash"]
