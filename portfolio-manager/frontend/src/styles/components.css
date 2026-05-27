@@ -2043,6 +2043,103 @@ a svg {
 
 .mission-receipt-cta span { font-weight: 600; }
 
+.mission-action-card {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr) minmax(220px, 0.46fr);
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-5);
+}
+
+.mission-action-main {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.mission-action-main > span,
+.mission-action-metrics span,
+.mission-action-side small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mission-action-main h2 {
+  margin: 0;
+  font-size: clamp(1.85rem, 3vw, 3rem);
+  line-height: 1;
+}
+
+.mission-action-main p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+  max-width: 54ch;
+}
+
+.mission-action-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.mission-action-metrics div {
+  min-height: 86px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: var(--space-3);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-action-metrics strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.mission-action-metrics small {
+  color: var(--muted);
+}
+
+.mission-action-side {
+  display: grid;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.mission-action-side button {
+  min-height: 44px;
+  border: 1px solid rgba(101, 255, 216, 0.28);
+  border-radius: 999px;
+  background: rgba(101, 255, 216, 0.1);
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mission-action-side p {
+  margin: 0;
+  color: var(--amber);
+  line-height: 1.35;
+}
+
+@media (max-width: 1200px) {
+  .mission-action-card {
+    grid-template-columns: 1fr;
+  }
+
+  .mission-action-side {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
 /* Telemetry strip */
 .mission-telemetry-strip {
   display: grid;

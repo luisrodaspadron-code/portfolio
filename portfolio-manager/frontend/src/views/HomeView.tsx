@@ -1,34 +1,16 @@
-import { motion } from "motion/react";
 import { useEffect } from "react";
-import { AlertTriangle, BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
+import { BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
 import type { AdvisorRunStatus, Dashboard } from "../types";
 import { modelRouteLabel, money, number, pct, shortDateTime, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
 import { PortfolioImpactPreview } from "../components/visuals/PortfolioImpactPreview";
 import { DecisionMap } from "../components/visuals/DecisionMap";
-import { DecisionReceiptCard, trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
+import { trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
 import { RunConsole } from "../components/advisor/RunConsole";
-import { AdvisoryTicket } from "../components/advisor/AdvisoryTicket";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
 import { savePacketSnapshot } from "../lib/packetSnapshot";
 import { pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
 import { DataQualityPill } from "../components/data/DataQualityPill";
-
-function decisionTone(decision?: string) {
-  if (!decision) return "neutral";
-  if (["Trim", "Rotate", "Avoid"].includes(decision)) return "danger";
-  if (decision === "Wait For Data") return "attention";
-  if (["Add", "Stagger Entry"].includes(decision)) return "live";
-  return "good";
-}
-
-function firstActionLabel(dashboard: Dashboard) {
-  const first = dashboard.advisor_packet?.recommendedPriority?.firstAction;
-  if (!first) return null;
-  const decision =
-    first.action === "TRIM" ? "Trim" : first.action === "ADD" ? "Add" : first.action === "STAGGER_ENTRY" ? "Stagger Entry" : first.action === "WAIT_FOR_DATA" ? "Wait For Data" : "Hold";
-  return { symbol: first.symbol, decision };
-}
 
 function receiptMath(dashboard: Dashboard) {
   return trimMathFromPacket(dashboard);
@@ -94,7 +76,6 @@ export function HomeView({
   const real = dashboard.real_portfolio;
   const hasHoldings = Boolean(real && real.positions.length > 0);
   const advisorDecision = dashboard.advisor_decision;
-  const topAction = firstActionLabel(dashboard);
   const canonicalHeadline = dashboard.advisor_packet?.recommendedPriority?.headline;
   const canonicalReceipt = dashboard.advisor_packet?.decisionReceipt;
   const sizing = receiptMath(dashboard);
@@ -130,10 +111,9 @@ export function HomeView({
           <Badge tone={policyPreset === "competition" ? "fail" : policyPreset === "aggressive" ? "watch" : "live"}>
             Policy · {policyLabel}
           </Badge>
-          <Badge tone="watch">Advisory-only</Badge>
         </div>
         <div className="mission-control-command">
-          <span>First priority</span>
+          <span>Now</span>
           <h1>{commandCopy}</h1>
         </div>
         <div className="mission-control-pills" role="list">
@@ -147,74 +127,57 @@ export function HomeView({
             <strong>Risk-reducing trades {allowedCount ? "allowed" : "no candidates"}</strong>
             {allowedCount > 0 && <em>{allowedCount}</em>}
           </span>
-          <span className="mission-pill neutral" role="listitem">
-            <i />
-            <strong>No order has been placed</strong>
-          </span>
         </div>
       </header>
 
-      <section className="mission-control-grid">
-        <motion.div
-          className="mission-first-action"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32 }}
-          data-testid="advisor-brief"
-        >
-          {firstAction ? (
-            <AdvisoryTicket
-              action={firstAction}
-              policy={selectedPolicy}
-              onAsk={onAsk}
-              compact
-            />
-          ) : (
-            <SignalPanel className="mission-first-action-empty">
-              <div className="command-kicker">
-                <StatusDot tone={decision.tone} />
-                <span>{decision.eyebrow}</span>
-                <Badge tone={decision.tone}>{decision.confidence}</Badge>
-              </div>
-              <h2>{decision.title}</h2>
-              <p>{answerBody}</p>
-              <div className="now-primary-row">
-                <CommandButton
-                  icon={decision.primaryTab === "portfolio" ? Import : decision.primaryTab === "connections" ? Database : ListChecks}
-                  variant="primary"
-                  data-testid="home-primary-action"
-                  onClick={() => onNavigate(decision.primaryTab)}
-                >
-                  {decision.primaryLabel}
-                </CommandButton>
-                <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal Prime thinks I should do now and why.")}>
-                  Ask Signal
-                </CommandButton>
-              </div>
-            </SignalPanel>
-          )}
-        </motion.div>
-
-        <SignalPanel className="mission-decision-receipt" testId="advisor-decision-summary">
-          <div className="panel-label-row">
-            <span>Decision receipt</span>
-            <Badge tone={advisorDecision?.status === "success" ? "live" : advisorDecision ? "watch" : "neutral"}>
-              {advisorDecision ? titleCase(advisorDecision.status) : "Waiting"}
-            </Badge>
-          </div>
-          <DecisionReceiptCard dashboard={dashboard} compact />
-          <button className="mission-receipt-cta" onClick={() => onNavigate("actions")}>
-            <Badge tone={decisionTone(topAction?.decision)}>{topAction?.decision ?? "Review"}</Badge>
-            <span>Open full action detail</span>
-          </button>
-          {topRisk && (
-            <div className="risk-callout">
-              <AlertTriangle size={16} />
-              <span>{topRisk.title}</span>
+      <SignalPanel className="mission-action-card" testId="advisor-brief">
+        {firstAction ? (
+          <>
+            <div className="mission-action-main">
+              <span>Recommended action</span>
+              <h2>{titleCase(firstAction.action)} {firstAction.symbol}</h2>
+              <p>{firstAction.explanation}</p>
             </div>
-          )}
-        </SignalPanel>
-      </section>
+            {sizing && (
+              <div className="mission-action-metrics">
+                <div><span>Current</span><strong>{pct(sizing.currentWeight)}</strong></div>
+                <div><span>Target</span><strong>{pct(sizing.targetWeight)}</strong></div>
+                <div><span>Trim</span><strong>{money(sizing.sellValue)}</strong></div>
+                <div><span>Shares</span><strong>{number(sizing.wholeSharesCompliant)}</strong><small>whole</small></div>
+                {sizing.priceUsed > 0 && <div><span>Price</span><strong>{money(sizing.priceUsed)}</strong></div>}
+              </div>
+            )}
+            <div className="mission-action-side">
+              <button type="button" onClick={() => onNavigate("actions")}>Open action plan</button>
+              {topRisk && <p>{topRisk.title}</p>}
+              <small>{nextRun ? `Next review ${shortDateTime(nextRun)}` : "Run again anytime."}</small>
+            </div>
+          </>
+        ) : (
+          <div className="mission-first-action-empty">
+            <div className="command-kicker">
+              <StatusDot tone={decision.tone} />
+              <span>{decision.eyebrow}</span>
+              <Badge tone={decision.tone}>{decision.confidence}</Badge>
+            </div>
+            <h2>{decision.title}</h2>
+            <p>{answerBody}</p>
+            <div className="now-primary-row">
+              <CommandButton
+                icon={decision.primaryTab === "portfolio" ? Import : decision.primaryTab === "connections" ? Database : ListChecks}
+                variant="primary"
+                data-testid="home-primary-action"
+                onClick={() => onNavigate(decision.primaryTab)}
+              >
+                {decision.primaryLabel}
+              </CommandButton>
+              <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal Prime thinks I should do now and why.")}>
+                Ask Signal
+              </CommandButton>
+            </div>
+          </div>
+        )}
+      </SignalPanel>
 
       <section className="mission-telemetry-strip" data-testid="mission-telemetry">
         <article>
@@ -256,15 +219,21 @@ export function HomeView({
       </section>
 
       {firstAction && real && (
-        <PortfolioImpactPreview
-          portfolio={real}
-          action={firstAction}
-          policy={selectedPolicy}
-          riskBreachCount={{
-            before: currentPacket.portfolioRisk.issueCount,
-            after: Math.max(0, currentPacket.portfolioRisk.issueCount - 1),
-          }}
-        />
+        <details className="portfolio-impact-disclosure">
+          <summary>
+            <span>Portfolio impact preview</span>
+            <Badge tone="neutral">Before / after</Badge>
+          </summary>
+          <PortfolioImpactPreview
+            portfolio={real}
+            action={firstAction}
+            policy={selectedPolicy}
+            riskBreachCount={{
+              before: currentPacket.portfolioRisk.issueCount,
+              after: Math.max(0, currentPacket.portfolioRisk.issueCount - 1),
+            }}
+          />
+        </details>
       )}
 
       <SignalPanel className="what-changed-panel">
@@ -339,19 +308,6 @@ export function HomeView({
         </section>
       </details>
 
-      {firstAction && (
-        <div className="mission-mobile-bar" data-testid="mission-mobile-bar" aria-label="Today's first advisory action">
-          <div>
-            <strong>{titleCase(firstAction.action)} {firstAction.symbol}</strong>
-            <span>
-              {sizing
-                ? `${money(sizing.sellValue)} est · ${pct(sizing.currentWeight)} → ${pct(sizing.postWeightCompliant || sizing.postWeight)}`
-                : "Advisory-only · no order placed"}
-            </span>
-          </div>
-          <button type="button" onClick={() => onNavigate("actions")}>Review</button>
-        </div>
-      )}
     </section>
   );
 }

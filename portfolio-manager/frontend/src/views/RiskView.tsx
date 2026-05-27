@@ -88,15 +88,15 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
     <section className="risk-view risk-brief screen-enter">
       <SignalPanel className={`risk-brief-hero ${issueCount ? "danger" : hasHoldings ? "good" : "attention"}`}>
         <div>
-          <span>Risk Brief</span>
-          <h1>{issueCount ? "Fix the risk that can hurt compounding first." : hasHoldings ? "No hard risk breach is forcing action." : "Import holdings to see real portfolio risk."}</h1>
+          <span>Risk</span>
+          <h1>{issueCount && firstAction ? `Top risk: ${firstAction.symbol} concentration` : hasHoldings ? "No forced risk repair" : "Import holdings to see risk"}</h1>
           <p>{heroFix}</p>
           {firstAction?.action === "TRIM" && (
             <div className="risk-hero-receipt">
               <span>Estimated trim</span>
               <strong>{money(firstTrimEstimate)}</strong>
               <p>
-                {firstAction.symbol} {pct(firstAction.currentWeight ?? 0)} → {pct(firstAction.targetWeight)} · advisory-only
+                {firstAction.symbol} {pct(firstAction.currentWeight ?? 0)} → {pct(firstAction.targetWeight)}
               </p>
             </div>
           )}

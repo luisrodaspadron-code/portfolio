@@ -110,8 +110,8 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
       <section className="actions-view actions-redesign screen-enter">
         <SignalPanel className="actions-hero-v2">
           <div>
-            <span>Action Brief</span>
-            <h1>{canonicalFirst ? `${titleCase(canonicalFirst.action)} ${canonicalFirst.symbol}` : topAction ? `${topAction.decision} ${topAction.symbol}` : "No portfolio action needed yet"}</h1>
+            <span>Action plan</span>
+            <h1>{canonicalFirst ? `${titleCase(canonicalFirst.action)} ${canonicalFirst.symbol}` : topAction ? `${topAction.decision} ${topAction.symbol}` : "No action needed"}</h1>
             <p>{packet.recommendedPriority.headline || advisorDecision?.portfolio_verdict || "Run the advisor to build an action brief."}</p>
           </div>
           {topAction && (
@@ -120,7 +120,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               <strong>{displayTrimPlan ? money(displayTrimPlan.estimatedSellValue) : `${pct(topAction.current_weight)} → ${pct(topAction.target_weight)}`}</strong>
               <p>
                 {displayTrimPlan
-                  ? `${displayTrimPlan.sharesToSellExact} exact · ${displayTrimPlan.sharesToSellWholeCompliant ?? displayTrimPlan.sharesToSellWhole} compliant whole shares · ${displayTrimPlan.sharesToSellWholeReduceOnly ?? displayTrimPlan.sharesToSellWhole} reduce-only`
+                  ? `${displayTrimPlan.sharesToSellExact.toFixed(2)} exact · ${displayTrimPlan.sharesToSellWholeCompliant ?? displayTrimPlan.sharesToSellWhole} whole shares`
                   : topAction.plain_action}
               </p>
             </div>

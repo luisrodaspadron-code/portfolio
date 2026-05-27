@@ -49,10 +49,6 @@ export function CommandRail({ activeTab, onTab }: { activeTab: AppTab; onTab: (t
           );
         })}
       </nav>
-      <div className="rail-footer">
-        <span>Review mode</span>
-        <strong>Advisory review</strong>
-      </div>
     </aside>
   );
 }

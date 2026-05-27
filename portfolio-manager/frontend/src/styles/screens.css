@@ -847,7 +847,7 @@
 }
 
 .portfolio-primary-table {
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .portfolio-filter-bar {
@@ -858,7 +858,7 @@
 }
 
 .portfolio-filter-bar button {
-  min-height: 44px;
+  min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.035);
@@ -867,7 +867,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
+  padding: 0 12px;
   font-weight: 900;
   transition: border-color 150ms ease, background 150ms ease, color 150ms ease, transform 150ms ease;
 }
@@ -886,8 +886,8 @@
 }
 
 .portfolio-filter-bar button strong {
-  min-width: 26px;
-  height: 24px;
+  min-width: 22px;
+  height: 20px;
   border-radius: 999px;
   display: inline-grid;
   place-items: center;
@@ -1342,7 +1342,7 @@
 }
 
 .actions-hero-v2 {
-  min-height: 176px;
+  min-height: 150px;
   gap: var(--space-4);
   padding: clamp(18px, 2.4vw, 26px);
   border-color: rgba(101, 255, 216, 0.24);
@@ -1373,7 +1373,7 @@
 }
 
 .actions-hero-v2 h1 {
-  font-size: clamp(2rem, 3vw, 3rem);
+  font-size: clamp(1.75rem, 2.6vw, 2.55rem);
 }
 
 .risk-hero-v2 p,
@@ -1929,7 +1929,7 @@
   grid-template-columns: minmax(320px, 1fr) minmax(220px, 0.65fr) minmax(240px, 0.55fr);
   gap: var(--space-3);
   align-items: center;
-  padding: var(--space-4);
+  padding: var(--space-3);
 }
 
 .provider-state {
@@ -1982,7 +1982,7 @@
 
 .provider-actions .command-button {
   min-width: 0;
-  min-height: 42px;
+  min-height: 38px;
   padding: 0 var(--space-3);
 }
 
@@ -2018,6 +2018,14 @@
   color: var(--muted);
   line-height: 1.35;
   margin-top: 4px;
+}
+
+.provider-main p,
+.provider-state small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .provider-main small {
@@ -2145,6 +2153,7 @@
 .review-checklist-disclosure,
 .opportunity-lab-disclosure,
 .portfolio-secondary-disclosure,
+.portfolio-impact-disclosure,
 .risk-policy-disclosure,
 .advanced-router-disclosure,
 .now-run-disclosure {
@@ -2159,6 +2168,7 @@
 .review-checklist-disclosure summary,
 .opportunity-lab-disclosure summary,
 .portfolio-secondary-disclosure summary,
+.portfolio-impact-disclosure summary,
 .risk-policy-disclosure summary,
 .advanced-router-disclosure summary,
 .now-run-disclosure summary {
@@ -2179,6 +2189,7 @@
 .review-checklist-disclosure summary::-webkit-details-marker,
 .opportunity-lab-disclosure summary::-webkit-details-marker,
 .portfolio-secondary-disclosure summary::-webkit-details-marker,
+.portfolio-impact-disclosure summary::-webkit-details-marker,
 .risk-policy-disclosure summary::-webkit-details-marker,
 .advanced-router-disclosure summary::-webkit-details-marker,
 .now-run-disclosure summary::-webkit-details-marker {
@@ -2194,6 +2205,7 @@
 .review-checklist-disclosure .review-checklist,
 .opportunity-lab-disclosure .opportunity-lab-panel,
 .portfolio-secondary-disclosure .trend-panel,
+.portfolio-impact-disclosure .portfolio-impact-preview,
 .risk-policy-disclosure .selected-policy-card,
 .risk-policy-disclosure .risk-radar-panel,
 .advanced-router-disclosure .ai-router-editor,
@@ -2207,6 +2219,7 @@
 .review-checklist-disclosure,
 .opportunity-lab-disclosure,
 .portfolio-secondary-disclosure,
+.portfolio-impact-disclosure,
 .risk-policy-disclosure,
 .advanced-router-disclosure,
 .now-run-disclosure {
@@ -2700,7 +2713,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(140px, 0.2fr);
   gap: var(--space-4);
   align-items: center;
-  padding: clamp(18px, 2.2vw, 26px);
+  padding: clamp(16px, 2vw, 24px);
   background:
     radial-gradient(circle at 10% 0%, rgba(101, 255, 216, 0.11), transparent 28%),
     linear-gradient(140deg, rgba(9, 25, 23, 0.84), rgba(5, 9, 8, 0.96));
@@ -2723,7 +2736,7 @@
 .risk-brief-hero h1 {
   max-width: 780px;
   margin: var(--space-2) 0 0;
-  font-size: clamp(1.55rem, 2.2vw, 2.35rem);
+  font-size: clamp(1.45rem, 2vw, 2.1rem);
   line-height: 1.04;
 }
 
@@ -2816,6 +2829,10 @@
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .risk-workbench {
