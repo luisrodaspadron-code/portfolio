@@ -2,9 +2,11 @@ import { Database, Layers3, ShieldAlert, TrendingDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { Dashboard } from "../types";
 import { money, pct, titleCase } from "../lib/format";
+import { riskRadarMetrics } from "../lib/viewModels";
 import { Badge, EmptyState, SignalPanel } from "../components/ui/Primitives";
 import { SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
 import { RiskBlockerCard, deriveRiskBlockers } from "../components/risk/RiskBlockerCard";
+import { RiskRadar } from "../components/visuals/RiskRadar";
 
 function riskBadgeLabel(tone: string) {
   if (tone === "danger") return "Fix now";
@@ -40,6 +42,7 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
   const topRisk = dashboard.advisor_trace.top_risks[0];
   const firstAction = packet.recommendedPriority.firstAction;
   const firstTrimEstimate = firstAction?.action === "TRIM" ? trimPlanValue(firstAction, "estimatedSellValue") : 0;
+  const radarMetrics = riskRadarMetrics(dashboard);
   const primaryFix =
     firstAction?.action === "TRIM"
       ? `Create a trim plan for ${firstAction.symbol}: estimated trim ${money(firstTrimEstimate)} toward the ${pct(firstAction.targetWeight)} cap.`
@@ -114,6 +117,26 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
           <p>{hasHoldings ? titleCase(packet.portfolioRisk.severity) : "Needs holdings"}</p>
         </div>
       </SignalPanel>
+
+      <section className="risk-command-center">
+        <SignalPanel className="risk-radar-panel risk-radar-feature">
+          <div className="panel-label-row">
+            <span>Risk radar</span>
+            <Badge tone={issueCount ? "watch" : "live"}>{issueCount ? `${issueCount} active` : "Clear"}</Badge>
+          </div>
+          <RiskRadar metrics={radarMetrics} />
+        </SignalPanel>
+        <SignalPanel className="risk-next-move-card">
+          <div className="panel-label-row">
+            <span>Next move</span>
+            <Badge tone={firstAction?.action === "TRIM" ? "fail" : "neutral"}>
+              {firstAction ? titleCase(firstAction.action.replace(/_/g, " ")) : "Review"}
+            </Badge>
+          </div>
+          <strong>{firstAction ? `${firstAction.symbol} first` : "No forced repair"}</strong>
+          <p>{firstAction?.action === "TRIM" ? `${money(firstTrimEstimate)} estimated trim. Actions shows share count, limit guidance, and rerun triggers.` : primaryFix}</p>
+        </SignalPanel>
+      </section>
 
       <section className="risk-brief-grid">
         {riskCards.map(({ icon: Icon, ...card }) => (

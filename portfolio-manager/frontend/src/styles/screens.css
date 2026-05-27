@@ -2940,6 +2940,50 @@
   gap: var(--space-4);
 }
 
+.risk-command-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.risk-radar-feature {
+  display: grid;
+  gap: var(--space-3);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(101, 255, 216, 0.07), transparent 32%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.risk-radar-feature .risk-radar-wrap {
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+}
+
+.risk-radar-feature .risk-radar-wrap svg {
+  max-width: 300px;
+}
+
+.risk-next-move-card {
+  display: grid;
+  gap: var(--space-4);
+  align-content: center;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 180, 84, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.035);
+}
+
+.risk-next-move-card strong {
+  color: var(--ink);
+  font-size: clamp(1.5rem, 2.4vw, 2.15rem);
+  line-height: 1;
+}
+
+.risk-next-move-card p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
 .risk-brief-card {
   display: grid;
   gap: var(--space-3);

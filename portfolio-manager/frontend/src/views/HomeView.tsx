@@ -195,30 +195,25 @@ export function HomeView({
         )}
       </SignalPanel>
 
-      {firstAction && real && (
-        <details className="portfolio-impact-disclosure">
-          <summary>
-            <span>Portfolio impact preview</span>
-            <Badge tone="neutral">Before / after</Badge>
-          </summary>
-          <PortfolioImpactPreview
-            portfolio={real}
-            action={firstAction}
-            policy={selectedPolicy}
-            riskBreachCount={{
-              before: currentPacket.portfolioRisk.issueCount,
-              after: Math.max(0, currentPacket.portfolioRisk.issueCount - 1),
-            }}
-          />
-        </details>
-      )}
-
-      <details className="what-changed-disclosure">
-        <summary>
-          <span>What changed since last review</span>
-          <Badge tone={dashboard.data_freshness.provider_mode === "live" ? "live" : "watch"}>{titleCase(dashboard.data_freshness.provider_mode)}</Badge>
-        </summary>
-        <SignalPanel className="what-changed-panel">
+      <section className="mission-insight-grid" aria-label="Impact and latest changes">
+        {firstAction && real && (
+          <SignalPanel className="mission-impact-panel">
+            <PortfolioImpactPreview
+              portfolio={real}
+              action={firstAction}
+              policy={selectedPolicy}
+              riskBreachCount={{
+                before: currentPacket.portfolioRisk.issueCount,
+                after: Math.max(0, currentPacket.portfolioRisk.issueCount - 1),
+              }}
+            />
+          </SignalPanel>
+        )}
+        <SignalPanel className="what-changed-panel mission-changes-panel">
+          <div className="panel-label-row">
+            <span>What changed</span>
+            <Badge tone={dashboard.data_freshness.provider_mode === "live" ? "live" : "watch"}>{titleCase(dashboard.data_freshness.provider_mode)}</Badge>
+          </div>
           <div className="change-grid">
             {changedItems(dashboard).map((item) => (
               <article key={item.label} className={item.tone}>
@@ -229,7 +224,7 @@ export function HomeView({
             ))}
           </div>
         </SignalPanel>
-      </details>
+      </section>
 
       <details className="now-run-disclosure" open={busy || activeRun?.status === "running"}>
         <summary>
