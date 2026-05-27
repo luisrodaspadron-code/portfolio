@@ -579,7 +579,15 @@ def data_freshness(conn) -> dict[str, Any]:
     live_sources = [source for source in price_source_counts if source != "sample"]
     preferred_source = max(price_source_counts, key=_source_rank) if price_source_counts else "none"
     live_symbols = sum(price_source_symbols.get(source, 0) for source in live_sources)
-    provider_mode = "live" if live_symbols else "sample"
+    from app.services.data_quality_service import provider_mode_for_prices
+    from app.services.policy_engine import selected_risk_policy
+
+    policy = selected_risk_policy(conn)
+    provider_mode = provider_mode_for_prices(
+        row["latest_price_date"] if row else None,
+        price_source_counts,
+        policy=policy,
+    )
     return {
         "latest_price_date": row["latest_price_date"],
         "price_bars": row["bars"],

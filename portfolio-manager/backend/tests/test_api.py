@@ -14,7 +14,7 @@ def test_clean_install_acceptance_flow(tmp_path, monkeypatch):
         dashboard = client.get("/api/dashboard")
         assert dashboard.status_code == 200
         assert dashboard.json()["paper_portfolio"]["cash"] == 100000
-        assert dashboard.json()["policy"]["summary"]["objective"]["label"] == "Win the long-term competition"
+        assert dashboard.json()["policy"]["summary"]["objective"]["label"] == "Grow steadily"
 
         policy = client.put(
             "/api/settings/policy",
@@ -26,8 +26,8 @@ def test_clean_install_acceptance_flow(tmp_path, monkeypatch):
         )
         assert policy.status_code == 200
         guardrails = policy.json()["policy"]["guardrails"]
-        assert guardrails["max_single_stock_weight"] == 0.05
-        assert guardrails["max_etf_weight"] == 0.18
+        assert guardrails["max_single_stock_weight"] == 0.15
+        assert guardrails["max_etf_weight"] == 0.60
         assert guardrails["max_positions"] == 28
 
         updated_dashboard = client.get("/api/dashboard")
@@ -197,3 +197,18 @@ def test_async_advisor_run_records_real_progress(tmp_path, monkeypatch):
     assert "Decision summary created" in step_names
     assert any(event["phase"] == "llm" and event["status"] == "success" for event in detail["events"])
     assert any(event["phase"] == "receipt" for event in detail["events"])
+
+    # V8: the SSE bus must have emitted matching lifecycle events for the same run.
+    from app.services import run_events
+
+    bus_events = run_events.history_as_dicts(run_id)
+    assert bus_events, "Run event bus did not record any events for the completed cycle."
+    types_seen = {event["type"] for event in bus_events}
+    assert "run" in types_seen and "step" in types_seen
+    # First and last bus events must be the run lifecycle markers.
+    assert bus_events[0]["type"] == "run" and bus_events[0]["status"] == "running"
+    assert bus_events[-1]["type"] == "run" and bus_events[-1]["status"] in {"success", "failed"}
+    # Step events must be a superset of the durable step rows.
+    bus_step_titles = {event["title"] for event in bus_events if event["type"] == "step"}
+    assert "AI review generated" in bus_step_titles
+    assert "Decision summary created" in bus_step_titles

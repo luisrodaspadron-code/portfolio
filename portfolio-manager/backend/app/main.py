@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import json
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.database import get_conn, init_db, update_risk_rules
 from app.models import (
@@ -42,6 +44,7 @@ from app.services.portfolio_service import execute_paper_order, import_holdings_
 from app.services.policy_service import apply_policy
 from app.services.quant_diagnostics import quant_diagnostics
 from app.services.recommendation_service import research_memos, run_recommendations
+from app.services import run_events
 from app.services.universe_service import refresh_universe, universe_status
 
 
@@ -156,6 +159,53 @@ def get_advisor_run(run_id: int) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/api/advisor/runs/{run_id}/events")
+async def stream_advisor_run_events(run_id: int, request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of advisor run lifecycle.
+
+    Emits real ``step`` and ``run`` events from the in-process bus. No
+    synthetic events, no LLM tokens. Closes naturally when the run reaches a
+    terminal status, or when the client disconnects.
+    """
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM automation_runs WHERE id = ?", (run_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Advisor run not found.")
+
+    async def event_generator():
+        import anyio
+
+        yield ": connected\n\n"
+        last_event_id = 0
+        terminal_seen = False
+        while True:
+            if await request.is_disconnected():
+                break
+            events = run_events.history(run_id)
+            for event in events:
+                if event.event_id <= last_event_id:
+                    continue
+                payload = json.dumps(event.to_dict(), default=str)
+                yield f"id: {event.event_id}\nevent: {event.type}\ndata: {payload}\n\n"
+                last_event_id = event.event_id
+                if event.type == "run" and event.status in {"success", "failed", "cancelled"}:
+                    terminal_seen = True
+            if terminal_seen:
+                yield "event: end\ndata: {}\n\n"
+                break
+            await anyio.sleep(0.25)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 @app.get("/api/advisor/status")
 def get_advisor_status() -> dict:
     with get_conn() as conn:
@@ -195,9 +245,15 @@ def get_advisor_reviews() -> dict:
 
 
 @app.post("/api/advisor/decision")
-def post_advisor_decision() -> dict:
+def post_advisor_decision(mode: str = "standard") -> dict:
     with get_conn() as conn:
-        return {"advisor_decision": run_advisor_decision(conn, force=True)}
+        return {"advisor_decision": run_advisor_decision(conn, force=True, mode=mode)}
+
+
+@app.post("/api/advisor/decision/deep")
+def post_advisor_decision_deep() -> dict:
+    with get_conn() as conn:
+        return {"advisor_decision": run_advisor_decision(conn, force=True, mode="deep")}
 
 
 @app.get("/api/advisor/decision/latest")

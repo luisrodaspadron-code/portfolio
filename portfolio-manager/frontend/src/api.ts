@@ -52,6 +52,49 @@ export function getAdvisorRun(runId: number) {
   return request<AdvisorRunStatus>(`/api/advisor/runs/${runId}`);
 }
 
+export type AdvisorRunStreamHandlers = {
+  onEvent: (event: import("./types").AdvisorRunEvent) => void;
+  onTerminal: (status: "success" | "failed" | "cancelled" | string) => void;
+  onError?: (message: string) => void;
+};
+
+export function streamAdvisorRunEvents(runId: number, handlers: AdvisorRunStreamHandlers): () => void {
+  if (typeof EventSource === "undefined") {
+    handlers.onError?.("Live run streaming is not supported in this browser.");
+    return () => {};
+  }
+  const source = new EventSource(`/api/advisor/runs/${runId}/events`);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    source.close();
+  };
+  const handle = (kind: "step" | "run") => (raw: MessageEvent) => {
+    try {
+      const data = JSON.parse(raw.data) as import("./types").AdvisorRunEvent;
+      handlers.onEvent(data);
+      if (kind === "run" && (data.status === "success" || data.status === "failed" || data.status === "cancelled")) {
+        handlers.onTerminal(data.status);
+        close();
+      }
+    } catch (error) {
+      handlers.onError?.(error instanceof Error ? error.message : "Could not parse advisor event payload.");
+    }
+  };
+  source.addEventListener("step", handle("step") as EventListener);
+  source.addEventListener("run", handle("run") as EventListener);
+  source.addEventListener("end", () => {
+    handlers.onTerminal("success");
+    close();
+  });
+  source.onerror = () => {
+    handlers.onError?.("Live advisor stream interrupted. Falling back to dashboard refresh.");
+    close();
+  };
+  return close;
+}
+
 export function runAdvisorReview() {
   return request<{ advisor_review: AdvisorReview }>("/api/advisor/review", { method: "POST" });
 }
@@ -66,6 +109,10 @@ export function getUniverseStatus() {
 
 export function runAdvisorDecision() {
   return request<{ advisor_decision: AdvisorDecision }>("/api/advisor/decision", { method: "POST" });
+}
+
+export function runAdvisorDeepReview() {
+  return request<{ advisor_decision: AdvisorDecision }>("/api/advisor/decision/deep", { method: "POST" });
 }
 
 export function runLiveAdvisorEval() {

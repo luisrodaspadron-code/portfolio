@@ -9,24 +9,7 @@ from typing import Any, Iterator
 from app.config import get_settings
 
 
-DEFAULT_RISK_RULES: dict[str, Any] = {
-    "max_single_stock_weight": 0.08,
-    "max_etf_weight": 0.25,
-    "max_sector_weight": 0.30,
-    "max_crypto_weight": 0.05,
-    "drawdown_warning": 0.12,
-    "emergency_risk_off": 0.20,
-    "min_liquidity_score": 65,
-    "max_positions": 18,
-    "base_currency": "USD",
-    "real_money_trading_enabled": False,
-    "decision_cadence": "daily_weekly",
-    "autopilot_enabled": True,
-    "autopilot_interval_hours": 24,
-    "policy_objective": "competition_growth",
-    "policy_risk": "aggressive_managed",
-    "policy_diversification": "broad_opportunistic",
-}
+from app.services.risk_policy import DEFAULT_RISK_RULES
 
 
 def dict_factory(cursor: sqlite3.Cursor, row: sqlite3.Row) -> dict[str, Any]:

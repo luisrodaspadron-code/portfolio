@@ -30,7 +30,7 @@ def test_advisor_packet_contains_quant_toolchain_and_data_status(tmp_path, monke
         "memo_generation",
     }.issubset(tool_names)
     assert packet["quant_diagnostics"]["status"] in {"healthy", "attention"}
-    assert packet["provider_freshness"]["provider_mode"] in {"live", "sample"}
+    assert packet["provider_freshness"]["provider_mode"] in {"live", "recent", "stale", "partial", "missing", "sample"}
     assert packet["data_quality"]["confidence"] in {"fresh", "stale", "sample_only"}
     assert packet["decision_boundary"].startswith("Decision-support only")
 
@@ -149,7 +149,7 @@ def test_advisor_review_payload_and_risk_gate_enforcement(tmp_path, monkeypatch)
     assert review_payload["reasoning"] == {"effort": "medium"}
     assert "risk gates" in review_payload["instructions"]
     assert any(tool["name"] == "risk_gates" for tool in packet["tool_inventory"])
-    assert packet["risk_rules"]["max_single_stock_weight"] == 0.08
+    assert packet["risk_rules"]["max_single_stock_weight"] == 0.15
     assert packet["data_quality"]["confidence"] == "sample_only"
     assert review["status"] == "success"
     assert not any(item.get("symbol") == "FXE" for item in review["approved_actions"])

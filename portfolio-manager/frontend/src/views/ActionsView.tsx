@@ -4,7 +4,10 @@ import type { AdvisorDecisionItem, Dashboard, Recommendation } from "../types";
 import { actionPriorityTone, recommendationLane } from "../lib/viewModels";
 import { money, pct, shortDateTime, titleCase } from "../lib/format";
 import { ActionImpactPreview } from "../components/visuals/ActionImpactPreview";
+import { DecisionReceiptCard } from "../components/advisor/DecisionReceiptCard";
+import { StaggerTimeline } from "../components/advisor/StaggerTimeline";
 import { Badge, CommandButton, DetailDrawer, EmptyState, SignalPanel } from "../components/ui/Primitives";
+import { OpportunityLab } from "../components/opportunities/OpportunityLab";
 
 function laneTone(lane: string) {
   if (lane === "Candidate Adds") return "live";
@@ -83,26 +86,31 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
   const [selectedDecision, setSelectedDecision] = useState<AdvisorDecisionItem | null>(null);
   const lanes = useMemo(() => groupRecommendations(dashboard.recent_recommendations), [dashboard.recent_recommendations]);
   const advisorDecision = dashboard.advisor_decision;
-  const canonicalFirst = dashboard.advisor_packet.recommendedPriority.firstAction;
-  const receipt = dashboard.advisor_packet.decisionReceipt;
+  const packet = dashboard.advisor_packet;
+  const canonicalFirst = packet.recommendedPriority.firstAction;
+  const receipt = packet.decisionReceipt;
+  const packetPositions = packet.positions;
+  const packetCandidates = packet.candidates;
 
-  if (advisorDecision) {
-    const allDecisions = [...advisorDecision.holding_decisions, ...advisorDecision.opportunity_decisions].sort((a, b) => decisionRank(a) - decisionRank(b));
+  if (advisorDecision || packetPositions.length) {
+    const allDecisions = advisorDecision
+      ? [...advisorDecision.holding_decisions, ...advisorDecision.opportunity_decisions].sort((a, b) => decisionRank(a) - decisionRank(b))
+      : [];
     const topAction = allDecisions[0];
     const topTrimPlan = topAction?.detail_payload?.trimPlan;
     const canonicalTrimPlan = canonicalFirst?.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"] | undefined;
     const displayTrimPlan = canonicalTrimPlan ?? topTrimPlan;
-    const addCandidates = advisorDecision.opportunity_decisions.filter((item) => item.decision === "Add" || item.decision === "Stagger Entry").slice(0, 4);
-    const trims = allDecisions.filter((item) => item.decision === "Trim" || item.decision === "Rotate");
-    const holds = advisorDecision.holding_decisions.filter((item) => item.decision === "Hold");
-    const waits = allDecisions.filter((item) => item.decision === "Wait For Data" || item.decision === "Avoid");
+    const addCandidates = packetCandidates.filter((item) => item.action === "ADD" || item.action === "STAGGER_ENTRY").slice(0, 4);
+    const trims = packetPositions.filter((item) => item.action === "TRIM");
+    const holds = packetPositions.filter((item) => item.action === "HOLD");
+    const waits = [...packetPositions, ...packetCandidates].filter((item) => item.action === "WAIT_FOR_DATA" || item.action === "BLOCKED_BY_RISK");
     return (
       <section className="actions-view actions-redesign screen-enter">
         <SignalPanel className="actions-hero-v2">
           <div>
             <span>Action Brief</span>
             <h1>{canonicalFirst ? `${titleCase(canonicalFirst.action)} ${canonicalFirst.symbol}` : topAction ? `${topAction.decision} ${topAction.symbol}` : "No portfolio action needed yet"}</h1>
-            <p>{dashboard.advisor_packet.recommendedPriority.headline || advisorDecision.portfolio_verdict}</p>
+            <p>{packet.recommendedPriority.headline || advisorDecision?.portfolio_verdict || "Run the advisor to build an action brief."}</p>
             <div className="inline-actions">
               <CommandButton icon={MessageCircle} variant="primary" onClick={() => onAsk("Explain the latest portfolio decision and what I should do first.")}>
                 Ask Signal about this decision
@@ -115,62 +123,38 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               <strong>{displayTrimPlan ? money(displayTrimPlan.estimatedSellValue) : `${pct(topAction.current_weight)} → ${pct(topAction.target_weight)}`}</strong>
               <p>
                 {displayTrimPlan
-                  ? `${displayTrimPlan.sharesToSellExact} exact shares · ${displayTrimPlan.sharesToSellWhole} whole-share check`
+                  ? `${displayTrimPlan.sharesToSellExact} exact · ${displayTrimPlan.sharesToSellWholeCompliant ?? displayTrimPlan.sharesToSellWhole} compliant whole shares · ${displayTrimPlan.sharesToSellWholeReduceOnly ?? displayTrimPlan.sharesToSellWhole} reduce-only`
                   : topAction.plain_action}
               </p>
             </div>
           )}
         </SignalPanel>
 
-        <details className="decision-receipt-drawer">
+        <details className="decision-receipt-drawer" open>
           <summary>
             <span>Decision receipt</span>
             <Badge tone={(receipt.hardGatesTripped?.length ?? 0) ? "watch" : "live"}>
               {(receipt.hardGatesTripped?.length ?? 0) ? `${receipt.hardGatesTripped?.length} gates` : "Clear"}
             </Badge>
           </summary>
-          <div className="decision-receipt-strip">
-            <div>
-              <span>First action</span>
-              <strong>{receipt.firstAction ?? "No first action yet"}</strong>
-              <p>Advisory-only. No order has been placed.</p>
-            </div>
-            <div>
-              <span>Hard gates</span>
-              <strong>{receipt.hardGatesTripped?.length ?? 0}</strong>
-              <p>{receipt.hardGatesTripped?.[0] ?? "No hard gate is currently forcing an action."}</p>
-            </div>
-            <div>
-              <span>Model route</span>
-              <strong>{dashboard.ai_status.model_router.leadPM.model}</strong>
-              <p>
-                {titleCase(dashboard.ai_status.model_router.leadPM.reasoningEffort)} reasoning
-                {receipt.model ? ` · latest run ${receipt.model}` : ""} · {receipt.promptVersion ?? "prompt tracked"}
-              </p>
-            </div>
-            <div>
-              <span>Packet</span>
-              <strong>{dashboard.advisor_packet.packetHash.slice(0, 10)}</strong>
-              <p>{receipt.nextScheduledReview ? `Next review ${shortDateTime(receipt.nextScheduledReview)}` : "Scheduled review tracked locally."}</p>
-            </div>
-          </div>
+          <DecisionReceiptCard dashboard={dashboard} compact />
         </details>
 
         <SignalPanel className="actions-summary-strip">
           <div>
             <span>Reviewed</span>
-            <strong>{advisorDecision.holding_decisions.length} holdings</strong>
-            <p>{advisorDecision.opportunity_decisions.length} outside candidates compared against the portfolio.</p>
+            <strong>{advisorDecision?.holding_decisions.length ?? packetPositions.length} holdings</strong>
+            <p>{packetCandidates.length} outside candidates compared against the portfolio.</p>
           </div>
           <div>
             <span>Change pressure</span>
             <strong>{trims.length ? `${trims.length} trim/rotate` : "No forced trim"}</strong>
-            <p>{trims[0]?.reason ?? "Signal is not forcing a reduction unless risk or evidence changes."}</p>
+            <p>{trims[0]?.explanation ?? "Signal is not forcing a reduction unless risk or evidence changes."}</p>
           </div>
           <div>
             <span>Potential adds</span>
             <strong>{addCandidates.length ? `${addCandidates.length} staged/add` : "No adds now"}</strong>
-            <p>{addCandidates[0]?.reason ?? "Outside ideas must beat current holdings after risk, freshness, and turnover."}</p>
+            <p>{addCandidates[0]?.explanation ?? "Outside ideas must beat current holdings after risk, freshness, and turnover."}</p>
           </div>
           <div>
             <span>Wait list</span>
@@ -183,17 +167,17 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <SignalPanel className="execution-plan-panel">
             <div className="panel-label-row">
               <span>Do next</span>
-              <Badge tone={advisorDecision.status === "success" ? "live" : "watch"}>{titleCase(advisorDecision.status)}</Badge>
+              <Badge tone={advisorDecision?.status === "success" ? "live" : "watch"}>{titleCase(advisorDecision?.status ?? "ready")}</Badge>
             </div>
             <div className="execution-steps">
-              {advisorDecision.execution_plan.slice(0, 2).map((item, index) => (
+              {(packet.recommendedPriority.doNext.length ? packet.recommendedPriority.doNext : advisorDecision?.execution_plan ?? []).slice(0, 2).map((item, index) => (
                 <div key={item}>
                   <strong>{index + 1}</strong>
                   <p>{item}</p>
                 </div>
               ))}
             </div>
-            {advisorDecision.execution_plan.length > 2 && (
+            {advisorDecision && advisorDecision.execution_plan.length > 2 && (
               <details className="mini-disclosure">
                 <summary>Show the rest of the plan</summary>
                 <div className="risk-note-stack">
@@ -208,21 +192,61 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <SignalPanel className="decision-list-panel">
             <div className="panel-label-row">
               <span>Position decisions</span>
-              <Badge tone="live">{advisorDecision.holding_decisions.length}</Badge>
+              <Badge tone="live">{packetPositions.length}</Badge>
             </div>
             <div className="execution-list">
-              {advisorDecision.holding_decisions.sort((a, b) => decisionRank(a) - decisionRank(b)).map((item) => (
-                <button className={`execution-row ${decisionTone(item.decision)}`} key={`${item.item_type}-${item.id}-${item.symbol}`} onClick={() => setSelectedDecision(item)}>
+              {packetPositions.map((item) => (
+                <button
+                  className={`execution-row ${decisionTone(item.action === "TRIM" ? "Trim" : item.action === "HOLD" ? "Hold" : item.action === "WAIT_FOR_DATA" ? "Wait For Data" : "Add")}`}
+                  key={`packet-${item.symbol}`}
+                  onClick={() => {
+                    const existing = advisorDecision?.holding_decisions.find((row) => row.symbol === item.symbol);
+                    if (existing) {
+                      setSelectedDecision(existing);
+                      return;
+                    }
+                    setSelectedDecision({
+                      id: 0,
+                      decision_run_id: 0,
+                      symbol: item.symbol,
+                      item_type: "holding",
+                      decision: item.action === "TRIM" ? "Trim" : item.action === "HOLD" ? "Hold" : item.action === "WAIT_FOR_DATA" ? "Wait For Data" : "Add",
+                      plain_action: `${item.action} ${item.symbol}`,
+                      reason: item.explanation,
+                      target_weight: item.targetWeight ?? 0,
+                      current_weight: item.currentWeight ?? 0,
+                      confidence_label: item.reasonCode,
+                      confidence_score: item.confidence ?? 0,
+                      eligibility: "eligible",
+                      risk_check: item.blockers.join("; "),
+                      quant_evidence: item.confidenceDrivers,
+                      source_freshness: item.dataQuality?.freshness ?? "",
+                      reason_code: item.reasonCode,
+                      ai_commentary: "",
+                      created_at: "",
+                      detail_payload: {
+                        trimPlan: item.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"],
+                        addPlan: item.addPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["addPlan"]
+                      }
+                    });
+                  }}
+                >
                   <div className="execution-symbol">
-                    <Badge tone={decisionTone(item.decision)}>{item.decision}</Badge>
+                    <Badge tone={decisionTone(item.action === "TRIM" ? "Trim" : "Hold")}>{titleCase(item.action.replace(/_/g, " "))}</Badge>
                     <strong>{item.symbol}</strong>
-                    <span>{item.confidence_label}</span>
+                    <span>{item.reasonCode}</span>
                   </div>
-                  <p>{item.reason}</p>
+                  <p>{item.explanation}</p>
                   <div className="execution-weight">
-                    <span>{pct(item.current_weight)} → {pct(item.target_weight)}</span>
-                    {item.detail_payload?.capDistance?.breached && <em>{pct(item.detail_payload.capDistance.over_by)} over cap</em>}
-                    <i><b style={{ width: `${Math.min(100, Math.max(4, item.current_weight * 100))}%` }} /></i>
+                    <span>
+                      {pct(item.currentWeight ?? 0)} → {pct(item.targetWeight ?? 0)}
+                    </span>
+                    {item.trimPlan && typeof item.trimPlan === "object" && "estimatedSellValue" in item.trimPlan ? (
+                      <em>{money(Number((item.trimPlan as { estimatedSellValue?: number }).estimatedSellValue ?? 0))} trim estimate</em>
+                    ) : null}
+                    <i>
+                      <b style={{ width: `${Math.min(100, Math.max(4, (item.currentWeight ?? 0) * 100))}%` }} />
+                    </i>
                   </div>
                 </button>
               ))}
@@ -230,25 +254,38 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           </SignalPanel>
         </section>
 
-        <SignalPanel className="opportunity-strip-panel">
-          <div className="panel-label-row">
-            <span>Outside opportunities</span>
-            <Badge tone={addCandidates.length ? "live" : "watch"}>{addCandidates.length ? `${addCandidates.length} candidates` : "No adds now"}</Badge>
-          </div>
-          {addCandidates.length ? (
-            <div className="opportunity-strip">
-              {addCandidates.map((item) => (
-                <button key={`${item.id}-${item.symbol}`} onClick={() => setSelectedDecision(item)}>
-                  <Badge tone="live">{item.decision}</Badge>
-                  <strong>{item.symbol}</strong>
-                  <span>{item.plain_action}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="group-description">Signal PM is not promoting outside adds until they beat the current portfolio after risk, data freshness, and turnover.</p>
-          )}
-        </SignalPanel>
+        <OpportunityLab
+          candidates={packetCandidates}
+          onAsk={onAsk}
+          onSelect={(item) => {
+            const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
+            if (existing) {
+              setSelectedDecision(existing);
+              return;
+            }
+            setSelectedDecision({
+              id: 0,
+              decision_run_id: 0,
+              symbol: item.symbol,
+              item_type: "opportunity",
+              decision: item.action === "STAGGER_ENTRY" ? "Stagger Entry" : "Add",
+              plain_action: `${item.action} ${item.symbol}`,
+              reason: item.explanation,
+              target_weight: item.targetWeight ?? 0,
+              current_weight: item.currentWeight ?? 0,
+              confidence_label: item.reasonCode,
+              confidence_score: item.confidence ?? 0,
+              eligibility: "pass",
+              risk_check: item.blockers.join("; "),
+              quant_evidence: item.confidenceDrivers,
+              source_freshness: item.dataQuality?.freshness ?? "",
+              reason_code: item.reasonCode,
+              ai_commentary: "",
+              created_at: "",
+              detail_payload: { addPlan: item.addPlan ?? undefined },
+            });
+          }}
+        />
 
         <DetailDrawer
           open={Boolean(selectedDecision)}
@@ -294,14 +331,26 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                       <strong>{selectedDecision.detail_payload.trimPlan.sharesToSellExact}</strong>
                     </div>
                     <div>
-                      <span>Whole shares</span>
-                      <strong>{selectedDecision.detail_payload.trimPlan.sharesToSellWhole}</strong>
+                      <span>Whole shares (compliant)</span>
+                      <strong>{selectedDecision.detail_payload.trimPlan.sharesToSellWholeCompliant ?? selectedDecision.detail_payload.trimPlan.sharesToSellWhole}</strong>
+                      <small>
+                        Reduce-only: {selectedDecision.detail_payload.trimPlan.sharesToSellWholeReduceOnly ?? selectedDecision.detail_payload.trimPlan.sharesToSellWhole}
+                      </small>
                     </div>
                     <div>
-                      <span>Post weight</span>
-                      <strong>{pct(selectedDecision.detail_payload.trimPlan.estimatedPostWeight)}</strong>
+                      <span>Post weight (compliant)</span>
+                      <strong>{pct(selectedDecision.detail_payload.trimPlan.estimatedPostWeightCompliant ?? selectedDecision.detail_payload.trimPlan.estimatedPostWeight)}</strong>
+                      {selectedDecision.detail_payload.trimPlan.policyThreshold ? (
+                        <small>Threshold: {pct(selectedDecision.detail_payload.trimPlan.policyThreshold)}</small>
+                      ) : null}
                     </div>
                   </div>
+                  <p className="trim-compliance-mode">
+                    Compliance mode: {titleCase((selectedDecision.detail_payload.trimPlan.complianceMode ?? "strict_below_threshold").replace(/_/g, " "))}
+                    {selectedDecision.detail_payload.trimPlan.wouldRemainAboveThresholdIfRoundedDown
+                      ? " · Reduce-only floor would still stay above the policy threshold."
+                      : ""}
+                  </p>
                   <p>
                     Price used: {money(selectedDecision.detail_payload.trimPlan.priceUsed)}
                     {selectedDecision.detail_payload.trimPlan.priceTimestamp ? ` · ${selectedDecision.detail_payload.trimPlan.priceTimestamp}` : ""}
@@ -313,13 +362,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                 <section className="decision-receipt-card">
                   <h3>Stagger plan</h3>
                   <p>Advisory-only. No order has been placed.</p>
-                  <div className="risk-note-stack">
-                    {selectedDecision.detail_payload.addPlan.trancheSchedule.slice(0, 4).map((tranche) => (
-                      <div key={`${tranche.trancheNumber}`}>
-                        Tranche {tranche.trancheNumber}: {pct(Number(tranche.estimatedWeight))} · {money(Number(tranche.estimatedDollarAmount))}
-                      </div>
-                    ))}
-                  </div>
+                  <StaggerTimeline schedule={selectedDecision.detail_payload.addPlan.trancheSchedule} symbol={selectedDecision.symbol} />
                 </section>
               )}
               <section>
@@ -336,14 +379,15 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                 </div>
               </section>
               <section>
-                <h3>Risk and execution</h3>
+                <h3>Risk and remediation</h3>
                 <p>{selectedDecision.risk_check}</p>
-                <p>{selectedDecision.ai_commentary || advisorDecision.staggering_guidance[0] || "No extra AI commentary attached."}</p>
+                <p>{selectedDecision.ai_commentary || advisorDecision?.staggering_guidance?.[0] || "No extra AI commentary attached."}</p>
+                <p className="risk-note-footer">Advisory-only. No order has been placed.</p>
               </section>
               <section>
                 <h3>What would change this</h3>
                 <div className="risk-note-stack">
-                  {(advisorDecision.what_would_change_my_mind.length ? advisorDecision.what_would_change_my_mind : advisorDecision.entry_conditions).slice(0, 3).map((item) => (
+                  {((advisorDecision?.what_would_change_my_mind.length ? advisorDecision.what_would_change_my_mind : advisorDecision?.entry_conditions) ?? []).slice(0, 3).map((item) => (
                     <div key={item}>{item}</div>
                   ))}
                 </div>

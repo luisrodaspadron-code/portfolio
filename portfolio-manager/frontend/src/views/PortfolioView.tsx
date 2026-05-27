@@ -7,6 +7,9 @@ import type { AdvisorPacketAction, Dashboard, Position } from "../types";
 import { money, number, pct, signedMoney, signedPct, titleCase } from "../lib/format";
 import { DataGrid } from "../components/data/DataGrid";
 import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
+import { PortfolioConstellation } from "../components/visuals/PortfolioConstellation";
+import { PortfolioMap } from "../components/visuals/PortfolioMap";
+import { portfolioConstellationNodes } from "../lib/viewModels";
 import { Badge, CommandButton, DetailDrawer, EmptyState, SignalPanel } from "../components/ui/Primitives";
 
 type PreviewState = {
@@ -428,7 +431,29 @@ export function PortfolioView({
         </SignalPanel>
       )}
 
+      {hasHoldings && real && (
+        <SignalPanel className="portfolio-map-panel" testId="portfolio-map-panel">
+          <PortfolioMap
+            portfolio={real}
+            advisorPacket={dashboard.advisor_packet ?? null}
+            onSelect={(symbol) => {
+              const target = real.positions.find((position) => position.symbol === symbol);
+              if (target) setSelectedPosition(target);
+            }}
+          />
+        </SignalPanel>
+      )}
+
       <section className="portfolio-detail-grid">
+        {hasHoldings && (
+          <SignalPanel className="allocation-panel constellation-panel">
+            <div className="panel-label-row">
+              <span>Risk / signal map</span>
+              <Badge tone={topPosition && topPosition.weight > Number(dashboard.risk_rules.max_single_stock_weight ?? 0.08) ? "fail" : "live"}>Weighted</Badge>
+            </div>
+            <PortfolioConstellation nodes={portfolioConstellationNodes(dashboard)} onImport={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
+          </SignalPanel>
+        )}
         <SignalPanel className="allocation-panel">
           <div className="panel-label-row">
             <span>Allocation</span>

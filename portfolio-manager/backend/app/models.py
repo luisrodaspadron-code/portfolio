@@ -78,7 +78,10 @@ class BacktestRequest(BaseModel):
     lookback_days: int = Field(default=90, ge=20, le=260)
     rebalance_frequency: Literal["weekly", "monthly"] = "weekly"
     transaction_cost_bps: float = Field(default=5, ge=0, le=100)
+    slippage_bps: float = Field(default=3, ge=0, le=100)
     max_positions: int = Field(default=8, ge=1, le=25)
+    ablations: list[str] = Field(default_factory=list)
+    regimes: list[dict[str, str]] = Field(default_factory=list)
 
     @field_validator("symbols")
     @classmethod

@@ -250,6 +250,8 @@ export type AdvisorRunStatus = {
 
 export type AdvisorRunEvent = {
   runId: string;
+  eventId?: number;
+  type?: "step" | "run" | string;
   timestamp: string;
   phase:
     | "universe"
@@ -264,9 +266,10 @@ export type AdvisorRunEvent = {
     | "llm"
     | "receipt"
     | "complete"
+    | "lifecycle"
     | "error"
     | string;
-  status: "queued" | "running" | "success" | "warning" | "error" | string;
+  status: "queued" | "running" | "success" | "warning" | "error" | "failed" | "cancelled" | string;
   title: string;
   detail: string;
   metrics?: Record<string, string | number>;
@@ -410,6 +413,62 @@ export type UniverseStatus = {
   scope_label: string;
 };
 
+export type SourceMatrixEntry = {
+  provider?: string;
+  fallback?: string;
+  recordCount?: number;
+  symbolCount?: number;
+  latestTimestamp?: string | null;
+  freshness?: string;
+  coverage?: string;
+  usedInRun?: boolean;
+  warnings?: string[];
+  [key: string]: unknown;
+};
+
+export type SourceMatrix = {
+  generatedAt: string;
+  policyVersion: string;
+  selectedPreset: string;
+  matrix: Record<string, SourceMatrixEntry>;
+  summary: Record<string, number | string | boolean>;
+};
+
+export type TrimPlan = {
+  mode: string;
+  complianceMode?: "strict_below_threshold" | "reduce_only" | "tax_aware_review" | string;
+  currentValue: number;
+  targetValue: number;
+  estimatedSellValue: number;
+  estimatedExecutedSellValue: number;
+  sharesToSellExact: number;
+  sharesToSell: number;
+  sharesToSellWhole: number;
+  sharesToSellWholeCompliant?: number;
+  sharesToSellWholeReduceOnly?: number;
+  sharesToSellFractionalCompliant?: number;
+  estimatedPostWeight: number;
+  estimatedPostWeightCompliant?: number;
+  estimatedPostWeightReduceOnly?: number;
+  wouldRemainAboveThresholdIfRoundedDown?: boolean;
+  policyThreshold?: number;
+  priceUsed: number;
+  priceTimestamp: string;
+  advisoryOnly: boolean;
+  taxWarning?: string;
+};
+
+export type AddPlan = {
+  targetWeight: number;
+  initialWeight: number;
+  trancheCount: number;
+  trancheSchedule: Array<Record<string, string | number>>;
+  sectorImpact: number;
+  riskBudgetImpact: number;
+  blockers: string[];
+  advisoryOnly: boolean;
+};
+
 export type AdvisorDecisionItem = {
   id: number;
   decision_run_id: number;
@@ -447,31 +506,8 @@ export type AdvisorDecisionItem = {
       confidence: number;
       warnings: string[];
     };
-    trimPlan?: null | {
-      mode: string;
-      currentValue: number;
-      targetValue: number;
-      estimatedSellValue: number;
-      estimatedExecutedSellValue: number;
-      sharesToSellExact: number;
-      sharesToSell: number;
-      sharesToSellWhole: number;
-      estimatedPostWeight: number;
-      priceUsed: number;
-      priceTimestamp: string;
-      advisoryOnly: boolean;
-      taxWarning?: string;
-    };
-    addPlan?: null | {
-      targetWeight: number;
-      initialWeight: number;
-      trancheCount: number;
-      trancheSchedule: Array<Record<string, string | number>>;
-      sectorImpact: number;
-      riskBudgetImpact: number;
-      blockers: string[];
-      advisoryOnly: boolean;
-    };
+    trimPlan?: TrimPlan | null;
+    addPlan?: AddPlan | null;
     blockers?: string[];
   };
   created_at: string;
@@ -586,6 +622,10 @@ export type PolicyStatus = {
     diversification: Record<string, PolicyChoice>;
   };
   guardrails: Record<string, number>;
+  selectedPolicy?: SelectedPolicy;
+  policyVersion?: string;
+  autopilotEnabled?: boolean;
+  realMoneyTradingEnabled?: boolean;
 };
 
 export type AiStatus = {
@@ -637,8 +677,95 @@ export type AiModelRoute = {
   role: string;
   provider: string;
   model: string;
-  reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh" | string;
+  reasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | string;
   maxOutputTokens: number;
+  timeoutMs?: number;
+  stream?: boolean;
+  purpose?: string;
+  requiresManualRun?: boolean;
+  promptVersion?: string;
+};
+
+export type SelectedSingleStockPolicy = {
+  target: number;
+  warning: number;
+  hardBuyBlock: number;
+  urgentReview: number;
+  extreme: number;
+};
+
+export type SelectedSectorPolicy = {
+  warning: number;
+  hardCap: number;
+  useBenchmarkRelativeCap: boolean;
+  maxActiveOverweight: number;
+};
+
+export type SelectedBroadEtfPolicy = {
+  exemptFromSingleStockCap: boolean;
+  useLookThroughWhenAvailable: boolean;
+  maxSingleBroadEtf: number;
+};
+
+export type SelectedThematicEtfPolicy = {
+  maxSingleThematicEtf: number;
+  requireLookThroughOrThemeRiskLabel: boolean;
+};
+
+export type SelectedNewStockPolicy = {
+  initialMax: number;
+  targetMax: number;
+  blockIfWorsensExistingBreach: boolean;
+  allowIfRiskReducingWithNewCash: boolean;
+};
+
+export type SelectedCryptoPolicy = {
+  enabledByDefault: boolean;
+  maxTotal: number;
+  maxSingle: number;
+  requireExplicitUserEnablement: boolean;
+  require24X7Freshness: boolean;
+  requireCustodyWarning: boolean;
+};
+
+export type SelectedDataQualityPolicy = {
+  equityLiveSeconds: number;
+  equityRecentSeconds: number;
+  cryptoLiveSeconds: number;
+  cryptoRecentSeconds: number;
+  minHistoryDaysRestricted: number;
+  minHistoryDaysFull: number;
+  minHistoryDaysWatchOnly: number;
+};
+
+export type SelectedLiquidityPolicy = {
+  minDollarVolumeDefault: number;
+  maxTradePercentOfAdv: number;
+};
+
+export type SelectedRemediationPolicy = {
+  allowRiskReducingTradesDuringBreach: boolean;
+  blockRiskIncreasingTradesDuringBreach: boolean;
+  requireTaxWarningForTaxableAccounts: boolean;
+  defaultTranches?: number;
+  defaultTrancheCadenceDays?: number;
+};
+
+export type SelectedPolicy = {
+  id: string;
+  name: string;
+  preset: "conservative" | "balanced" | "aggressive" | "competition" | "custom" | string;
+  advisoryOnly: boolean;
+  version?: string;
+  singleStock: SelectedSingleStockPolicy;
+  sector: SelectedSectorPolicy;
+  broadEtf: SelectedBroadEtfPolicy;
+  thematicEtf: SelectedThematicEtfPolicy;
+  singleNewStockAdd: SelectedNewStockPolicy;
+  crypto: SelectedCryptoPolicy;
+  dataQuality: SelectedDataQualityPolicy;
+  liquidity: SelectedLiquidityPolicy;
+  remediation: SelectedRemediationPolicy;
 };
 
 export type ConnectionField = {
@@ -752,16 +879,8 @@ export type AdvisorPacketAction = {
     message: string;
     blocksAdds: boolean;
   }>;
-  trimPlan?: AdvisorDecisionItem["detail_payload"] extends infer Detail
-    ? Detail extends { trimPlan?: infer Trim }
-      ? Trim
-      : unknown
-    : unknown;
-  addPlan?: AdvisorDecisionItem["detail_payload"] extends infer Detail
-    ? Detail extends { addPlan?: infer Add }
-      ? Add
-      : unknown
-    : unknown;
+  trimPlan?: TrimPlan | null;
+  addPlan?: AddPlan | null;
   confidence: number;
   confidenceDrivers: string[];
   blockers: string[];
@@ -772,6 +891,7 @@ export type AdvisorPacket = {
   runId: string;
   promptVersion: string;
   policyVersion: string;
+  deterministicEngineVersion?: string;
   generatedAt: string;
   packetHash: string;
   portfolioValue: number;
@@ -813,11 +933,23 @@ export type AdvisorPacket = {
     confidenceDrivers?: string[];
     nextScheduledReview?: string;
     summary?: string;
+    selectedPolicy?: string;
+    selectedPolicyPreset?: string;
+    policyVersion?: string;
+    packetHash?: string;
+    modelRoute?: string;
+    tokenUsage?: Record<string, number>;
+    softWarnings?: string[];
+    riskIncreasingActionsBlocked?: string[];
+    riskReducingActionsAllowed?: string[];
   };
+  selectedPolicy?: SelectedPolicy;
+  sourceMatrix?: SourceMatrix;
   audit: {
     deterministicEngineVersion: string;
     llmModel?: string;
     llmReasoningEffort?: string;
+    modelRoute?: string;
     toolCalls: Array<Record<string, string | number | boolean>>;
     warnings: string[];
     errors: string[];

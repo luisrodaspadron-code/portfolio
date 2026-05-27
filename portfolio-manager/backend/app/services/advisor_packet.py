@@ -7,15 +7,18 @@ from typing import Any
 
 from app.database import get_risk_rules
 from app.services.ai_service import ai_model_config
+from app.services.data_quality_service import build_source_matrix
 from app.services.data_service import data_freshness
-from app.services.decision_service import latest_decision
+from app.services.decision_service import latest_decision, _deterministic_decision
+from app.services.policy_engine import POLICY_VERSION as CANONICAL_POLICY_VERSION
+from app.services.policy_engine import risk_policy_to_dict, selected_risk_policy
 from app.services.portfolio_service import portfolio_summary
 from app.services.universe_service import universe_status
 
 
-PACKET_VERSION = "signal-prime.v1"
-POLICY_VERSION = "risk-policy.v1"
-DETERMINISTIC_ENGINE_VERSION = "deterministic-risk-sizing.v1"
+PACKET_VERSION = "signal-prime.v2"
+POLICY_VERSION = CANONICAL_POLICY_VERSION
+DETERMINISTIC_ENGINE_VERSION = "deterministic-risk-sizing.v2"
 
 
 def _now() -> str:
@@ -193,7 +196,11 @@ def _candidate_decision(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _priority(positions: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> dict[str, Any]:
+def _priority(
+    positions: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    sector_breaches: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     first = (
         next((item for item in positions if item["action"] == "TRIM"), None)
         or next((item for item in positions if item["action"] == "WAIT_FOR_DATA"), None)
@@ -220,10 +227,17 @@ def _priority(positions: list[dict[str, Any]], candidates: list[dict[str, Any]])
             "Use staged entries for long-term adds when data is fresh and gates pass.",
         ],
         "blockedActions": [
-            f"New adds blocked until {item['symbol']} is under cap."
-            for item in positions
-            if item["action"] == "TRIM"
-        ][:6],
+            *[
+                f"New adds blocked until {item['symbol']} is under cap."
+                for item in positions
+                if item["action"] == "TRIM"
+            ][:6],
+            *[
+                breach.get("message", "")
+                for breach in sector_breaches or []
+                if breach.get("blocksAdds")
+            ][:3],
+        ],
     }
 
 
@@ -261,16 +275,28 @@ def _decision_receipt(packet: dict[str, Any], decision: dict[str, Any] | None, n
             "estimatedSellValue": trim.get("estimatedSellValue"),
             "sharesToSellExact": trim.get("sharesToSellExact"),
             "sharesToSellWhole": trim.get("sharesToSellWhole"),
+            "sharesToSellWholeCompliant": trim.get("sharesToSellWholeCompliant"),
+            "sharesToSellWholeReduceOnly": trim.get("sharesToSellWholeReduceOnly"),
+            "sharesToSellFractionalCompliant": trim.get("sharesToSellFractionalCompliant"),
             "estimatedPostWeight": trim.get("estimatedPostWeight"),
+            "estimatedPostWeightCompliant": trim.get("estimatedPostWeightCompliant"),
+            "estimatedPostWeightReduceOnly": trim.get("estimatedPostWeightReduceOnly"),
+            "wouldRemainAboveThresholdIfRoundedDown": trim.get("wouldRemainAboveThresholdIfRoundedDown"),
+            "complianceMode": trim.get("complianceMode"),
+            "policyThreshold": trim.get("policyThreshold"),
             "priceUsed": trim.get("priceUsed"),
             "priceTimestamp": trim.get("priceTimestamp"),
         }
+    blocked_actions = packet["recommendedPriority"].get("blockedActions") or []
     return {
         "title": "Decision Receipt",
         "runId": packet["runId"],
         "timestamp": packet["generatedAt"],
         "advisoryOnly": True,
         "noOrderPlaced": True,
+        "selectedPolicy": packet.get("selectedPolicy", {}).get("name", ""),
+        "selectedPolicyPreset": packet.get("selectedPolicy", {}).get("preset", ""),
+        "policyVersion": packet["policyVersion"],
         "portfolioValueUsed": packet["portfolioValue"],
         "firstAction": packet["recommendedPriority"]["headline"],
         "sizingMath": math,
@@ -281,12 +307,29 @@ def _decision_receipt(packet: dict[str, Any], decision: dict[str, Any] | None, n
                 *packet["portfolioRisk"]["sectorBreaches"],
             ]
         ],
+        "softWarnings": list(packet["audit"].get("warnings", [])),
+        "riskIncreasingActionsBlocked": [
+            action for action in blocked_actions if "blocked" in action.lower()
+        ],
+        "riskReducingActionsAllowed": [
+            "Risk-reducing diversification may remain eligible if it improves concentration and passes data/risk gates.",
+        ]
+        if blocked_actions
+        else [],
         "alternativesConsidered": [item["symbol"] for item in packet["candidates"][:5]],
         "dataLimitations": packet["audit"]["warnings"],
+        "sourceReceipts": packet["dataSources"],
         "model": (decision or {}).get("model", ""),
+        "modelRoute": packet["audit"].get("modelRoute", ""),
         "reasoningEffort": packet["audit"].get("llmReasoningEffort", ""),
         "promptVersion": packet.get("promptVersion", ""),
         "deterministicEngineVersion": packet["audit"]["deterministicEngineVersion"],
+        "packetHash": packet.get("packetHash", ""),
+        "tokenUsage": {
+            "input_tokens": int((decision or {}).get("input_tokens") or 0),
+            "output_tokens": int((decision or {}).get("output_tokens") or 0),
+            "total_tokens": int((decision or {}).get("total_tokens") or 0),
+        },
         "confidenceDrivers": first.get("confidenceDrivers", [])[:4],
         "nextScheduledReview": next_review_at or (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
     }
@@ -298,27 +341,50 @@ def build_canonical_advisor_packet(conn, *, next_review_at: str | None = None) -
     freshness = data_freshness(conn)
     rules = get_risk_rules(conn)
     model_router = ai_model_config(conn)
+    policy = selected_risk_policy(conn)
+
+    # Deterministic-first: if a stored decision exists, use it for compatibility with
+    # the existing decision_items DB rows. Otherwise compute deterministic decisions
+    # from a freshly-built advisor packet so the canonical packet still exists.
+    holding_items: list[dict[str, Any]] = []
+    opportunity_items: list[dict[str, Any]] = []
+    if decision:
+        holding_items = list((decision or {}).get("holding_decisions", []) or [])
+        opportunity_items = list((decision or {}).get("opportunity_decisions", []) or [])
+    else:
+        try:
+            from app.services.advisor_intelligence import build_advisor_packet
+
+            seed_packet = build_advisor_packet(conn)
+            deterministic = _deterministic_decision(conn, seed_packet)
+            holding_items = list(deterministic.get("holding_decisions", []) or [])
+            opportunity_items = list(deterministic.get("opportunity_decisions", []) or [])
+        except Exception:
+            holding_items = []
+            opportunity_items = []
+
     by_symbol = _position_lookup(real)
-    holding_items = (decision or {}).get("holding_decisions", [])
-    opportunity_items = (decision or {}).get("opportunity_decisions", [])
     positions = [_position_decision(item, by_symbol.get(item["symbol"])) for item in holding_items]
     candidates = [_candidate_decision(item) for item in opportunity_items]
     single_breaches = [breach for item in positions for breach in item["riskBreaches"]]
     sector_breaches = _sector_breaches(real, rules)
     stale_breaches = _stale_data_breaches(holding_items)
     warnings = []
-    if freshness.get("provider_mode") != "live":
+    if freshness.get("provider_mode") not in {"live", "recent"}:
         warnings.append("Price data is not fully live; confidence is downgraded until a provider refresh succeeds.")
     warnings.extend(breach["message"] for breach in stale_breaches[:4])
+    source_matrix = build_source_matrix(conn, policy=policy)
     packet_seed = {
         "packetVersion": PACKET_VERSION,
         "runId": str((decision or {}).get("id") or "pending"),
         "promptVersion": "signal-prime-review.v1",
         "policyVersion": POLICY_VERSION,
+        "selectedPolicy": risk_policy_to_dict(policy),
         "generatedAt": _now(),
         "portfolioValue": float(real.get("total_value") or 0),
         "cashValue": float(real.get("cash") or 0),
         "dataSources": _data_sources(freshness),
+        "sourceMatrix": source_matrix,
         "positions": positions,
         "candidates": candidates,
         "portfolioRisk": {
@@ -334,17 +400,19 @@ def build_canonical_advisor_packet(conn, *, next_review_at: str | None = None) -
             "deterministicEngineVersion": DETERMINISTIC_ENGINE_VERSION,
             "llmModel": (decision or {}).get("model", ""),
             "llmReasoningEffort": model_router["leadPM"]["reasoningEffort"] if decision else "",
+            "modelRoute": "leadPM" if decision else "",
             "toolCalls": [
                 {"tool": "portfolio_valuation", "status": "success", "records": len(real.get("positions", []))},
                 {"tool": "risk_gates", "status": "success", "records": len(single_breaches) + len(sector_breaches)},
                 {"tool": "trim_add_sizing", "status": "success", "records": len(positions) + len(candidates)},
                 {"tool": "universe_screen", "status": "success", "records": universe_status(conn).get("included_assets", 0)},
+                {"tool": "source_matrix", "status": "success", "records": len(source_matrix.get("matrix", {}))},
             ],
             "warnings": warnings,
             "errors": [] if decision else ["No advisor decision run has completed yet."],
         },
     }
-    packet_seed["recommendedPriority"] = _priority(positions, candidates)
+    packet_seed["recommendedPriority"] = _priority(positions, candidates, sector_breaches)
     packet_seed["packetHash"] = _stable_hash(packet_seed)
     packet_seed["decisionReceipt"] = _decision_receipt(packet_seed, decision, next_review_at)
     return packet_seed

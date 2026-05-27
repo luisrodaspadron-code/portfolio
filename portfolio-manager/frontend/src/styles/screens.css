@@ -2202,6 +2202,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+.receipt-math-grid small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.receipt-math-grid small.receipt-warning {
+  color: rgba(255, 180, 84, 0.95);
+  font-weight: 700;
+}
+
 .receipt-limitations {
   border-color: rgba(255, 180, 84, 0.22);
 }
@@ -2742,4 +2756,65 @@
   background:
     radial-gradient(circle at 8% 0%, rgba(101, 255, 216, 0.08), transparent 26%),
     rgba(255, 255, 255, 0.035);
+}
+
+.run-event-empty {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  color: var(--text-muted);
+}
+
+.decision-receipt-card {
+  display: grid;
+  gap: 14px;
+}
+
+.decision-receipt-card.compact {
+  gap: 10px;
+}
+
+.decision-receipt-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.decision-receipt-footer {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.receipt-timeline-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-left: 2px solid rgba(99, 255, 214, 0.18);
+  margin-left: 8px;
+  padding-left: 14px;
+}
+
+.receipt-timeline-marker {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(99, 255, 214, 0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.risk-radar-panel {
+  margin-bottom: 16px;
+}
+
+.constellation-panel {
+  grid-column: 1 / -1;
 }

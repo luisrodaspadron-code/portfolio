@@ -1,11 +1,18 @@
 import { motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
-import type { AdvisorDecisionItem, AdvisorRunStatus, Dashboard } from "../types";
+import type { AdvisorRunStatus, Dashboard } from "../types";
 import { money, number, pct, shortDateTime, signedMoney, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
 import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
+import { DecisionReceiptCard, trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
 import { RunConsole } from "../components/advisor/RunConsole";
+import { CompareRunDrawer } from "../components/advisor/CompareRunDrawer";
+import { AdvisoryTicket } from "../components/advisor/AdvisoryTicket";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
+import { savePacketSnapshot } from "../lib/packetSnapshot";
+import { pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
+import { DataQualityPill } from "../components/data/DataQualityPill";
 
 function decisionTone(decision?: string) {
   if (!decision) return "neutral";
@@ -15,32 +22,16 @@ function decisionTone(decision?: string) {
   return "good";
 }
 
-function pickTopDecision(dashboard: Dashboard): AdvisorDecisionItem | undefined {
-  const decision = dashboard.advisor_decision;
-  return (
-    decision?.holding_decisions.find((item) => item.decision === "Trim") ??
-    decision?.opportunity_decisions.find((item) => item.decision === "Add" || item.decision === "Stagger Entry") ??
-    decision?.holding_decisions.find((item) => item.decision === "Wait For Data") ??
-    decision?.holding_decisions[0] ??
-    decision?.opportunity_decisions[0]
-  );
+function firstActionLabel(dashboard: Dashboard) {
+  const first = dashboard.advisor_packet?.recommendedPriority?.firstAction;
+  if (!first) return null;
+  const decision =
+    first.action === "TRIM" ? "Trim" : first.action === "ADD" ? "Add" : first.action === "STAGGER_ENTRY" ? "Stagger Entry" : first.action === "WAIT_FOR_DATA" ? "Wait For Data" : "Hold";
+  return { symbol: first.symbol, decision };
 }
 
 function receiptMath(dashboard: Dashboard) {
-  const math = dashboard.advisor_packet?.decisionReceipt?.sizingMath;
-  const first = dashboard.advisor_packet?.recommendedPriority?.firstAction;
-  if (!math || !first) return null;
-  return {
-    symbol: first.symbol,
-    currentWeight: first.currentWeight ?? 0,
-    targetWeight: first.targetWeight ?? 0,
-    sellValue: Number(math.estimatedSellValue ?? 0),
-    exactShares: Number(math.sharesToSellExact ?? 0),
-    wholeShares: Number(math.sharesToSellWhole ?? 0),
-    postWeight: Number(math.estimatedPostWeight ?? 0),
-    priceUsed: Number(math.priceUsed ?? 0),
-    priceTimestamp: typeof math.priceTimestamp === "string" ? math.priceTimestamp : ""
-  };
+  return trimMathFromPacket(dashboard);
 }
 
 function changedItems(dashboard: Dashboard) {
@@ -80,7 +71,8 @@ export function HomeView({
   activeRun,
   onNavigate,
   onAsk,
-  onRunAdvisor
+  onRunAdvisor,
+  onDeepReview
 }: {
   dashboard: Dashboard;
   busy: boolean;
@@ -88,12 +80,21 @@ export function HomeView({
   onNavigate: (tab: AppTab) => void;
   onAsk: (question?: string) => void;
   onRunAdvisor: () => void;
+  onDeepReview?: () => void;
 }) {
   const decision = primaryDecision(dashboard);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const currentPacket = dashboard.advisor_packet;
+  const currentHash = currentPacket?.packetHash ?? "";
+  useEffect(() => {
+    if (currentPacket && currentHash) {
+      savePacketSnapshot(currentPacket);
+    }
+  }, [currentHash, currentPacket]);
   const real = dashboard.real_portfolio;
   const hasHoldings = Boolean(real && real.positions.length > 0);
   const advisorDecision = dashboard.advisor_decision;
-  const topDecision = pickTopDecision(dashboard);
+  const topAction = firstActionLabel(dashboard);
   const canonicalHeadline = dashboard.advisor_packet?.recommendedPriority?.headline;
   const canonicalReceipt = dashboard.advisor_packet?.decisionReceipt;
   const sizing = receiptMath(dashboard);
@@ -106,138 +107,152 @@ export function HomeView({
   const answerBody = sizing
     ? `${sizing.symbol} is ${pct(sizing.currentWeight)} of the portfolio versus the ${pct(sizing.targetWeight)} policy target. Repair concentration before considering new exposure.`
     : decision.body;
-  const verdictSummary = sizing
-    ? `${sizing.symbol} is the first action. The deterministic engine says trim toward the cap, then rerun the advisor before adding anything new.`
-    : advisorDecision?.portfolio_verdict ?? "Signal needs the next advisor decision before it can summarize changes.";
+
+  const selectedPolicy = pickSelectedPolicy(dashboard);
+  const firstAction = dashboard.advisor_packet?.recommendedPriority?.firstAction ?? null;
+  const blockedCount = canonicalReceipt?.riskIncreasingActionsBlocked?.length ?? 0;
+  const allowedCount = canonicalReceipt?.riskReducingActionsAllowed?.length ?? 0;
+  const policyLabel = selectedPolicy?.name ?? dashboard.policy?.selectedPolicy?.name ?? titleCase(selectedPolicy?.preset ?? "balanced");
+  const policyPreset = selectedPolicy?.preset ?? dashboard.policy?.selectedPolicy?.preset ?? "balanced";
+  const today = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date());
+  const commandCopy = canonicalReceipt?.summary
+    ?? canonicalHeadline
+    ?? (firstAction
+      ? `${titleCase(firstAction.action)} ${firstAction.symbol} before increasing single-stock exposure.`
+      : "Run the advisor to generate today's command.");
+  const dataLabel = titleCase(dashboard.data_freshness.provider_mode);
 
   return (
-    <section className="now-view now-decision-hub screen-enter">
-      <div className="now-command-grid">
+    <section className="now-view now-decision-hub screen-enter mission-control">
+      <header className="mission-control-bar" data-testid="mission-control-header">
+        <div className="mission-control-eyebrow">
+          <strong>SIGNAL PRIME</strong>
+          <span>{today}</span>
+          <Badge tone={policyPreset === "competition" ? "fail" : policyPreset === "aggressive" ? "watch" : "live"}>
+            Policy · {policyLabel}
+          </Badge>
+          <Badge tone="watch">Advisory-only</Badge>
+        </div>
+        <div className="mission-control-command">
+          <span>Today's command</span>
+          <h1>{commandCopy}</h1>
+        </div>
+        <div className="mission-control-pills" role="list">
+          <span className={`mission-pill ${blockedCount ? "blocked" : "calm"}`} role="listitem">
+            <i />
+            <strong>Risk-increasing trades {blockedCount ? "blocked" : "open"}</strong>
+            {blockedCount > 0 && <em>{blockedCount}</em>}
+          </span>
+          <span className={`mission-pill ${allowedCount ? "allowed" : "calm"}`} role="listitem">
+            <i />
+            <strong>Risk-reducing trades {allowedCount ? "allowed" : "no candidates"}</strong>
+            {allowedCount > 0 && <em>{allowedCount}</em>}
+          </span>
+          <span className="mission-pill neutral" role="listitem">
+            <i />
+            <strong>No order has been placed</strong>
+          </span>
+        </div>
+      </header>
+
+      <section className="mission-control-grid">
         <motion.div
-          className="now-answer-panel"
-          initial={{ opacity: 0, y: 16 }}
+          className="mission-first-action"
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={{ duration: 0.32 }}
           data-testid="advisor-brief"
         >
-          <div className="command-kicker">
-            <StatusDot tone={decision.tone} />
-            <span>{decision.eyebrow}</span>
-            <Badge tone={decision.tone}>{decision.confidence}</Badge>
-          </div>
-          <h1>{decision.title}</h1>
-          <p>{answerBody}</p>
-          <div className="now-primary-row">
-            <CommandButton
-              icon={decision.primaryTab === "portfolio" ? Import : decision.primaryTab === "connections" ? Database : ListChecks}
-              variant="primary"
-              data-testid="home-primary-action"
-              onClick={() => onNavigate(decision.primaryTab)}
-            >
-              {decision.primaryLabel}
-            </CommandButton>
-            <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal PM thinks I should do now and why.")}>
-              Ask Signal
-            </CommandButton>
-          </div>
-          <div className="portfolio-pulse-grid">
-            <div>
-              <span>Portfolio</span>
-              <strong>{hasHoldings && real ? money(real.total_value) : "Needs import"}</strong>
-              <p>{hasHoldings && real ? `${real.positions.length} holdings tracked` : "Real holdings unlock the advisor."}</p>
-            </div>
-            <div>
-              <span>{hasTrendHistory ? trend.latest_change_label : "Current value"}</span>
-              <strong className={hasTrendHistory ? (trend.day_change >= 0 ? "positive" : "negative") : undefined}>
-                {hasTrendHistory ? signedMoney(trend.day_change) : money(latestValue)}
-              </strong>
-              <p>{hasTrendHistory ? `${signedPct(trend.day_change_pct)} day · ${signedPct(trend.month_change_pct)} month` : "Trend needs another live/history point."}</p>
-            </div>
-            <div>
-              <span>Next refresh</span>
-              <strong>{nextRun ? shortDateTime(nextRun) : "Waiting"}</strong>
-              <p>{dashboard.scheduler.enabled ? "Automatic daily review is on." : "Local scheduler is paused."}</p>
-            </div>
-            <div>
-              <span>AI review</span>
-              <strong>{advisorDecision ? titleCase(advisorDecision.status) : titleCase(dashboard.ai_activity)}</strong>
-              <p>{lastAiRun ? shortDateTime(lastAiRun) : "No model review yet."}</p>
-            </div>
-          </div>
+          {firstAction ? (
+            <AdvisoryTicket
+              action={firstAction}
+              policy={selectedPolicy}
+              onAsk={onAsk}
+            />
+          ) : (
+            <SignalPanel className="mission-first-action-empty">
+              <div className="command-kicker">
+                <StatusDot tone={decision.tone} />
+                <span>{decision.eyebrow}</span>
+                <Badge tone={decision.tone}>{decision.confidence}</Badge>
+              </div>
+              <h2>{decision.title}</h2>
+              <p>{answerBody}</p>
+              <div className="now-primary-row">
+                <CommandButton
+                  icon={decision.primaryTab === "portfolio" ? Import : decision.primaryTab === "connections" ? Database : ListChecks}
+                  variant="primary"
+                  data-testid="home-primary-action"
+                  onClick={() => onNavigate(decision.primaryTab)}
+                >
+                  {decision.primaryLabel}
+                </CommandButton>
+                <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk("Summarize what Signal PM thinks I should do now and why.")}>
+                  Ask Signal
+                </CommandButton>
+              </div>
+            </SignalPanel>
+          )}
         </motion.div>
 
-        <SignalPanel className="advisor-verdict-panel" testId="advisor-decision-summary">
+        <SignalPanel className="mission-decision-receipt" testId="advisor-decision-summary">
           <div className="panel-label-row">
-            <span>Should I change anything?</span>
+            <span>Decision receipt</span>
             <Badge tone={advisorDecision?.status === "success" ? "live" : advisorDecision ? "watch" : "neutral"}>
               {advisorDecision ? titleCase(advisorDecision.status) : "Waiting"}
             </Badge>
           </div>
-          <h2>{verdictSummary}</h2>
-          {canonicalHeadline && (
-            <div className="decision-receipt-summary">
-              <span>Deterministic first action</span>
-              <strong>{canonicalHeadline}</strong>
-              <p>Advisory-only. No order has been placed.</p>
-            </div>
-          )}
-          {sizing && (
-            <div className="receipt-math-grid">
-              <div>
-                <span>Trim estimate</span>
-                <strong>{money(sizing.sellValue)}</strong>
-              </div>
-              <div>
-                <span>Shares</span>
-                <strong>{sizing.exactShares.toFixed(4)}</strong>
-                <p>{sizing.wholeShares ? `${sizing.wholeShares} whole-share floor` : "Fractional supported"}</p>
-              </div>
-              <div>
-                <span>Weight</span>
-                <strong>
-                  {pct(sizing.currentWeight)} → {pct(sizing.targetWeight)}
-                </strong>
-                <p>Estimated post-action {pct(sizing.postWeight)}</p>
-              </div>
-              <div>
-                <span>Price used</span>
-                <strong>{money(sizing.priceUsed)}</strong>
-                <p>{sizing.priceTimestamp ? shortDateTime(sizing.priceTimestamp) : "Reference timestamp unavailable"}</p>
-              </div>
-            </div>
-          )}
-          {topDecision ? (
-            <button className={`verdict-open-action ${decisionTone(topDecision.decision)}`} onClick={() => onNavigate("actions")}>
-              <Badge tone={decisionTone(topDecision.decision)}>{topDecision.decision}</Badge>
-              <span>Open full {topDecision.symbol} action details</span>
-            </button>
-          ) : (
-            <div className="verdict-open-action neutral">
-              <Badge tone="watch">Setup</Badge>
-              <span>Import holdings and run the advisor.</span>
-            </div>
-          )}
-          <div className="verdict-reasons">
-            {(advisorDecision?.execution_plan.length ? advisorDecision.execution_plan : ["No real trades are placed automatically.", "Signal prioritizes risk gates before upside.", "Use Ask Signal for clarification before acting."])
-              .slice(0, 2)
-              .map((item) => (
-                <div key={item}>{item}</div>
-              ))}
-          </div>
+          <DecisionReceiptCard dashboard={dashboard} compact />
+          <button className="mission-receipt-cta" onClick={() => onNavigate("actions")}>
+            <Badge tone={decisionTone(topAction?.decision)}>{topAction?.decision ?? "Review"}</Badge>
+            <span>Open full action detail</span>
+          </button>
           {topRisk && (
             <div className="risk-callout">
               <AlertTriangle size={16} />
               <span>{topRisk.title}</span>
             </div>
           )}
-          {canonicalReceipt?.hardGatesTripped?.length ? (
-            <div className="receipt-limitations">
-              <span>Hard gates tripped</span>
-              <p>{canonicalReceipt.hardGatesTripped.slice(0, 1).join(" ")}</p>
-            </div>
-          ) : null}
         </SignalPanel>
-      </div>
+      </section>
+
+      <section className="mission-telemetry-strip" data-testid="mission-telemetry">
+        <article>
+          <span>Portfolio</span>
+          <strong>{hasHoldings && real ? money(real.total_value) : "Needs import"}</strong>
+          <p>
+            {hasHoldings && real
+              ? `${real.positions.length} holdings · ${hasTrendHistory ? signedPct(trend.day_change_pct) + " day" : "trend building"}`
+              : "Import a portfolio to unlock the advisor."}
+          </p>
+        </article>
+        <article>
+          <span>Data quality</span>
+          <DataQualityPill freshness={dashboard.data_freshness.provider_mode === "live" ? "live" : dashboard.data_freshness.provider_mode === "partial" ? "partial" : dashboard.data_freshness.provider_mode === "sample" ? "sample" : "recent"} compact />
+          <p>
+            {number(dashboard.data_freshness.live_price_symbols || dashboard.data_freshness.sample_price_symbols)} priced symbols · {dataLabel}
+          </p>
+        </article>
+        <article>
+          <span>AI route</span>
+          <strong>
+            {dashboard.advisor_packet?.decisionReceipt?.modelRoute
+              ?? dashboard.ai_status.model_router.leadPM.model}
+          </strong>
+          <p>
+            {titleCase(dashboard.advisor_packet?.decisionReceipt?.reasoningEffort
+              ?? dashboard.ai_status.model_router.leadPM.reasoningEffort)} reasoning
+            {lastAiRun ? ` · ${shortDateTime(lastAiRun)}` : ""}
+          </p>
+        </article>
+        <article>
+          <span>Policy</span>
+          <strong>{policyLabel}</strong>
+          <p>
+            Cap ladder · {selectedPolicy ? pct(selectedPolicy.singleStock.hardBuyBlock) : "—"} hard buy block · {nextRun ? shortDateTime(nextRun) : "no scheduled run"}
+          </p>
+        </article>
+      </section>
 
       <SignalPanel className="what-changed-panel">
         <div className="panel-label-row">
@@ -271,7 +286,14 @@ export function HomeView({
           <p className="panel-note">{trend.source_note}</p>
         </SignalPanel>
 
-        <RunConsole dashboard={dashboard} run={activeRun} busy={busy} onRun={onRunAdvisor} />
+        <RunConsole
+          dashboard={dashboard}
+          run={activeRun}
+          busy={busy}
+          onRun={onRunAdvisor}
+          onDeepRun={onDeepReview}
+          onCompare={() => setCompareOpen(true)}
+        />
       </section>
 
       <details className="now-audit-drawer">
@@ -306,6 +328,26 @@ export function HomeView({
           </SignalPanel>
         </section>
       </details>
+
+      <CompareRunDrawer
+        open={compareOpen}
+        onOpenChange={setCompareOpen}
+        packet={currentPacket}
+      />
+
+      {firstAction && (
+        <div className="mission-mobile-bar" data-testid="mission-mobile-bar" aria-label="Today's first advisory action">
+          <div>
+            <strong>{titleCase(firstAction.action)} {firstAction.symbol}</strong>
+            <span>
+              {sizing
+                ? `${money(sizing.sellValue)} est · ${pct(sizing.currentWeight)} → ${pct(sizing.postWeightCompliant || sizing.postWeight)}`
+                : "Advisory-only · no order placed"}
+            </span>
+          </div>
+          <button type="button" onClick={() => onNavigate("actions")}>Review</button>
+        </div>
+      )}
     </section>
   );
 }

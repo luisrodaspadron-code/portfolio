@@ -49,12 +49,16 @@ def test_trim_plan_whole_share_rounding_reports_post_weight():
         price_timestamp="2026-05-27",
         quantity=3.3033,
         fractional_shares=False,
+        compliance_mode="reduce_only",
     )
 
     assert plan["sharesToSellExact"] == 0.900901
+    assert plan["sharesToSellWholeReduceOnly"] == 0
+    assert plan["sharesToSellWholeCompliant"] == 1
     assert plan["sharesToSellWhole"] == 0
     assert plan["sharesToSell"] == 0
     assert plan["estimatedPostWeight"] == 0.11
+    assert plan["complianceMode"] == "reduce_only"
 
 
 def test_data_quality_live_recent_stale_and_missing():

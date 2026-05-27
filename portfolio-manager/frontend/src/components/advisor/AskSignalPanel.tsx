@@ -13,13 +13,55 @@ type Message = {
   meta?: string;
 };
 
-const starterQuestions = [
+const DEFAULT_PROMPTS = [
   "What is the biggest risk in my current portfolio?",
-  "Why is META a breach?",
   "What assets did you consider?",
   "How did SEC EDGAR affect this recommendation?",
-  "What would change your mind?"
+  "What would change your mind?",
 ];
+
+const SCREEN_PROMPTS: Record<string, string[]> = {
+  now: [
+    "Why is this the first action?",
+    "What happens if I do nothing this cycle?",
+    "What can I safely add after trimming the largest position?",
+    "What changed since the last advisor run?",
+  ],
+  portfolio: [
+    "Which holding is creating the most risk?",
+    "Which positions are under target weight?",
+    "What data is missing for any of my holdings?",
+    "Which holding has the worst data freshness right now?",
+  ],
+  risk: [
+    "What clears the largest blocker right now?",
+    "Which risk axis is most urgent?",
+    "How much risk remains after the suggested trim?",
+    "Show me every blocker grouped by what would unblock it.",
+  ],
+  actions: [
+    "Explain the current advisory ticket in plain English.",
+    "Show me a staged entry plan for the eligible candidates.",
+    "What would invalidate today's recommendation?",
+    "Which candidates are risk-reducing and why?",
+  ],
+  connections: [
+    "Which data source should I fix first?",
+    "What data is sent to the AI today?",
+    "Why is the model routing configured this way?",
+    "Where is data partial or stale?",
+  ],
+  models: [
+    "Which model is doing the heavy lifting and why?",
+    "How does reasoning effort affect the decision receipt?",
+    "Is anything routed cloud-side that should stay local?",
+  ],
+};
+
+function promptsFor(screenContext: string): string[] {
+  const key = (screenContext || "now").toLowerCase();
+  return SCREEN_PROMPTS[key] ?? DEFAULT_PROMPTS;
+}
 
 export function AskSignalPanel({
   dashboard,
@@ -132,8 +174,9 @@ export function AskSignalPanel({
                   )}
                 </div>
 
-                <div className="starter-questions">
-                  {starterQuestions.map((starter) => (
+                <div className="starter-questions" data-screen={screenContext}>
+                  <span className="starter-questions-label">Suggested for {titleCase(screenContext || "now")}</span>
+                  {promptsFor(screenContext).map((starter) => (
                     <button key={starter} type="button" onClick={() => submit(undefined, starter)} disabled={busy}>
                       {starter}
                     </button>

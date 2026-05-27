@@ -5,6 +5,7 @@ import type { AiStatus, ConnectionProvider, Dashboard } from "../types";
 import { getConnectionGroups } from "../lib/viewModels";
 import { number, shortDateTime, titleCase } from "../lib/format";
 import { Badge, CommandButton, DetailDrawer, IconSlot, SignalPanel, type UiIcon } from "../components/ui/Primitives";
+import { SourceMatrixPanel } from "../components/data/SourceMatrixPanel";
 
 const providerIcons: Record<string, UiIcon> = {
   openai: BrainCircuit,
@@ -125,13 +126,22 @@ export function ConnectionsView({
     }
   }
 
-  function setRouteField(route: "fast" | "specialist" | "leadPM" | "deepCompetition", key: "model" | "reasoningEffort" | "maxOutputTokens", value: string) {
+  function setRouteField(
+    route: "fast" | "specialist" | "leadPM" | "deepCompetition",
+    key: "model" | "reasoningEffort" | "maxOutputTokens" | "timeoutMs" | "stream" | "requiresManualRun" | "promptVersion" | "purpose",
+    value: string | number | boolean,
+  ) {
     setRouterDraft((current) => ({
       ...current,
       [route]: {
         ...current[route],
-        [key]: key === "maxOutputTokens" ? Number(value) : value
-      }
+        [key]:
+          key === "maxOutputTokens" || key === "timeoutMs"
+            ? Number(value)
+            : key === "stream" || key === "requiresManualRun"
+              ? Boolean(value)
+              : value,
+      },
     }));
   }
 
@@ -300,6 +310,11 @@ export function ConnectionsView({
               <strong>{dashboard.ai_status.last_run?.status ?? "none"}</strong>
             </div>
           </div>
+          <p className="ai-router-disclosure">
+            All keys stay encrypted in local app data. Cloud LLMs only receive a packet when you explicitly run the
+            advisor, ask Signal, or trigger the Deep Competition review — and routes flagged "Manual only" never run on
+            autopilot. The deterministic engine is the source of truth for caps, sizing, and risk gates.
+          </p>
           <div className="ai-router-editor">
             {(["fast", "specialist", "leadPM", "deepCompetition"] as const).map((route) => (
               <article key={route}>
@@ -314,6 +329,7 @@ export function ConnectionsView({
                 <label>
                   <span>Reasoning</span>
                   <select value={routerDraft[route].reasoningEffort} onChange={(event) => setRouteField(route, "reasoningEffort", event.target.value)}>
+                    <option value="minimal">Minimal</option>
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
@@ -331,6 +347,49 @@ export function ConnectionsView({
                     onChange={(event) => setRouteField(route, "maxOutputTokens", event.target.value)}
                   />
                 </label>
+                <label>
+                  <span>Timeout (ms)</span>
+                  <input
+                    type="number"
+                    min={1000}
+                    max={120000}
+                    step={500}
+                    value={routerDraft[route].timeoutMs ?? 45000}
+                    onChange={(event) => setRouteField(route, "timeoutMs", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Prompt version</span>
+                  <input
+                    value={routerDraft[route].promptVersion ?? ""}
+                    placeholder="signal-prime.prompt.v2"
+                    onChange={(event) => setRouteField(route, "promptVersion", event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Purpose</span>
+                  <input
+                    value={routerDraft[route].purpose ?? ""}
+                    placeholder={route === "leadPM" ? "Final narrative review" : "Specialist input"}
+                    onChange={(event) => setRouteField(route, "purpose", event.target.value)}
+                  />
+                </label>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(routerDraft[route].stream)}
+                    onChange={(event) => setRouteField(route, "stream", event.target.checked)}
+                  />
+                  <span>Stream tokens (run console only — does not affect canonical decisions)</span>
+                </label>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(routerDraft[route].requiresManualRun)}
+                    onChange={(event) => setRouteField(route, "requiresManualRun", event.target.checked)}
+                  />
+                  <span>Manual only (skip on autopilot)</span>
+                </label>
               </article>
             ))}
             <CommandButton icon={CheckCircle2} variant="secondary" disabled={busyProvider === "ai-router"} onClick={saveRouter}>
@@ -339,6 +398,8 @@ export function ConnectionsView({
           </div>
         </details>
       </SignalPanel>
+
+      <SourceMatrixPanel matrix={dashboard.advisor_packet?.sourceMatrix ?? null} />
 
       <DetailDrawer
         open={Boolean(openProvider)}

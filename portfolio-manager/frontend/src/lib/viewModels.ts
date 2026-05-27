@@ -94,6 +94,7 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
   const riskBreaches = dashboard.decision_packet_status.risk_breaches;
   const quantChecked = dashboard.quant_diagnostics.coverage.scored_instruments > 0 && dashboard.quant_diagnostics.recommendations.total > 0;
   const quantError = dashboard.quant_diagnostics.status === "error" || dashboard.quant_diagnostics.status === "fail";
+  const quantPartial = !quantChecked && !quantError && dashboard.quant_diagnostics.status !== "healthy";
   const portfolioValue = dashboard.real_portfolio?.total_value ?? 0;
   const latestProvider = dashboard.data_freshness.latest_provider_refresh;
   const latestPriceProviderFailed = latestProvider?.status === "failed" && latestProvider.provider === dashboard.data_freshness.preferred_price_source;
@@ -149,8 +150,8 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
     },
     {
       label: "Quant",
-      value: quantError ? "Error" : quantChecked ? "Checked" : "Waiting",
-      tone: quantError ? "danger" : quantChecked ? "good" : "neutral",
+      value: quantError ? "Error" : quantChecked ? "Checked" : quantPartial ? "Partial" : "Waiting",
+      tone: quantError ? "danger" : quantChecked ? "good" : quantPartial ? "attention" : "neutral",
       detail: `${dashboard.quant_diagnostics.coverage.scored_instruments} scored · ${dashboard.universe_status.included_assets || dashboard.market_scope.enabled_instruments} universe assets`
     }
   ];
@@ -158,14 +159,33 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
 
 export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
   const setup = getSetupStatus(dashboard);
+  const packet = dashboard.advisor_packet;
+  const firstAction = packet?.recommendedPriority?.firstAction;
+  const receipt = packet?.decisionReceipt;
   const advisorDecision = dashboard.advisor_decision;
+  const reviewAction = dashboard.advisor_review?.highest_priority_action ?? {};
+  const fallbackAction = dashboard.action_items[0];
+
+  if (firstAction && receipt) {
+    const tone = firstAction.action === "TRIM" || firstAction.action === "BLOCKED_BY_RISK" ? "danger" : firstAction.action === "WAIT_FOR_DATA" ? "attention" : "live";
+    return {
+      eyebrow: "Portfolio decision",
+      title: `${titleCase(firstAction.action.replace(/_/g, " "))} ${firstAction.symbol}`,
+      body: packet.recommendedPriority.headline || receipt.summary || firstAction.explanation || "Review the decision receipt for sizing and gate details.",
+      primaryLabel: dashboard.decision_packet_status.risk_breaches ? "Review risks" : "Review advisor actions",
+      primaryTab: dashboard.decision_packet_status.risk_breaches ? "risks" : "actions",
+      secondaryLabel: dashboard.decision_packet_status.risk_breaches ? "Review actions" : "Review connections",
+      secondaryTab: dashboard.decision_packet_status.risk_breaches ? "actions" : "connections",
+      tone,
+      confidence: "Decision receipt"
+    };
+  }
+
   const decisionItem = advisorDecision?.holding_decisions.find((item) => item.decision === "Trim") ??
     advisorDecision?.opportunity_decisions.find((item) => item.decision === "Add" || item.decision === "Stagger Entry") ??
     advisorDecision?.holding_decisions.find((item) => item.decision === "Wait For Data") ??
     advisorDecision?.holding_decisions[0] ??
     advisorDecision?.opportunity_decisions[0];
-  const reviewAction = dashboard.advisor_review?.highest_priority_action ?? {};
-  const fallbackAction = dashboard.action_items[0];
 
   if (!setup.portfolioConnected) {
     return {
@@ -245,7 +265,7 @@ export function primaryDecision(dashboard: Dashboard): PrimaryDecision {
     secondaryLabel: dashboard.decision_packet_status.risk_breaches ? "Review actions" : "Review connections",
     secondaryTab: dashboard.decision_packet_status.risk_breaches ? "actions" : "connections",
     tone: fallbackAction?.priority === "high" ? "danger" : "live",
-    confidence: advisorDecision?.status === "success" ? "Decision receipt" : advisorDecision ? "Quant receipt" : dashboard.advisor_review?.status === "success" ? "AI reviewed" : "Quant-gated"
+    confidence: advisorDecision?.status === "success" ? "Decision receipt" : advisorDecision ? "Quant receipt" : dashboard.advisor_review?.status === "success" ? "Quant receipt" : "Quant-gated"
   };
 }
 

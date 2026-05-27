@@ -17,6 +17,7 @@ from app.services.recommendation_service import run_recommendations
 from app.services.strategy_service import strategy_reviews
 from app.services.data_service import compute_universe_features
 from app.services.universe_service import refresh_universe
+from app.services import run_events
 
 
 def _now() -> str:
@@ -118,6 +119,15 @@ def _create_run(trigger: str) -> dict[str, Any]:
     started_at = _now()
     with get_conn() as conn:
         run_id = _insert_run(conn, trigger, "running", started_at, {}, "")
+    run_events.publish(
+        run_id,
+        type="run",
+        phase="lifecycle",
+        status="running",
+        title="Advisor run started",
+        detail=f"Trigger: {trigger}.",
+        metrics={"trigger": trigger},
+    )
     return {"id": run_id, "status": "running", "started_at": started_at}
 
 
@@ -131,6 +141,22 @@ def _update_run(run_id: int, status: str, started_at: str, summary: dict[str, An
             """,
             (status, _now(), json.dumps(summary), error, run_id),
         )
+    run_events.publish(
+        run_id,
+        type="run",
+        phase="lifecycle",
+        status=status,
+        title="Advisor run finished" if status == "success" else "Advisor run stopped",
+        detail=error or f"Status: {status}.",
+        metrics={
+            "status": status,
+            "records_processed": sum(
+                int(receipt.get("records") or 0)
+                for receipt in summary.get("step_receipts", [])
+                if isinstance(receipt, dict)
+            ),
+        },
+    )
 
 
 def _begin_step(run_id: int | None, step: str, message: str = "") -> int | None:
@@ -145,7 +171,17 @@ def _begin_step(run_id: int | None, step: str, message: str = "") -> int | None:
             """,
             (run_id, step, "running", 0, _now(), message),
         )
-        return int(cursor.lastrowid)
+        step_id = int(cursor.lastrowid)
+    run_events.publish(
+        run_id,
+        type="step",
+        phase=_event_phase(step),
+        status="running",
+        title=step,
+        detail=message,
+        metrics={"stepId": step_id},
+    )
+    return step_id
 
 
 def _finish_step(step_id: int | None, receipt: dict[str, Any]) -> None:
@@ -166,6 +202,22 @@ def _finish_step(step_id: int | None, receipt: dict[str, Any]) -> None:
                 receipt.get("technical_detail", ""),
                 step_id,
             ),
+        )
+        row = conn.execute("SELECT run_id FROM automation_run_steps WHERE id = ?", (step_id,)).fetchone()
+    run_id = int(row["run_id"]) if row else None
+    if run_id is not None:
+        run_events.publish(
+            run_id,
+            type="step",
+            phase=_event_phase(str(receipt.get("step") or "")),
+            status=_event_status(str(receipt.get("status") or "")),
+            title=str(receipt.get("step") or "Advisor step"),
+            detail=str(receipt.get("message") or ""),
+            metrics={
+                "stepId": step_id,
+                "records": int(receipt.get("records") or 0),
+            },
+            source=str(receipt.get("technical_detail") or ""),
         )
 
 
@@ -190,6 +242,9 @@ def advisor_run_detail(conn, run_id: int) -> dict[str, Any]:
         freshness = data_freshness(conn)
         priced_symbols = freshness.get("live_price_symbols") or freshness.get("sample_price_symbols") or 0
     provider_results = summary.get("provider_results", []) if isinstance(summary, dict) else []
+    bus_events = run_events.history_as_dicts(int(row["id"]))
+    step_events = _run_events([dict(step) for step in steps], int(row["id"]))
+    events = bus_events if bus_events else step_events
     return {
         "run_id": row["id"],
         "status": row["status"],
@@ -199,7 +254,7 @@ def advisor_run_detail(conn, run_id: int) -> dict[str, Any]:
         "current_step": current or latest,
         "completed_steps": completed,
         "steps": [dict(step) for step in steps],
-        "events": _run_events([dict(step) for step in steps], int(row["id"])),
+        "events": events,
         "records_processed": sum(int(step["records"] or 0) for step in steps),
         "fallback_reason": row["error"] or summary.get("fallback_reason", ""),
         "model": summary.get("ai_model", ""),

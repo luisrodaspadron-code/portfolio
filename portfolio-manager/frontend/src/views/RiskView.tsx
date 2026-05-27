@@ -1,14 +1,12 @@
-import { AlertTriangle, CheckCircle2, Database, Layers3, MessageCircle, ShieldAlert, TrendingDown } from "lucide-react";
+import { Database, Layers3, MessageCircle, ShieldAlert, TrendingDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { Dashboard } from "../types";
 import { money, pct, titleCase } from "../lib/format";
+import { riskRadarMetrics } from "../lib/viewModels";
+import { RiskRadar } from "../components/visuals/RiskRadar";
 import { Badge, CommandButton, EmptyState, SignalPanel } from "../components/ui/Primitives";
-
-function riskTone(level: string) {
-  if (level === "high" || level === "elevated") return "danger";
-  if (level === "medium" || level === "watch") return "attention";
-  return "good";
-}
+import { SelectedPolicyCard, SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
+import { RiskBlockerCard, deriveRiskBlockers } from "../components/risk/RiskBlockerCard";
 
 function riskBadgeLabel(tone: string) {
   if (tone === "danger") return "Fix now";
@@ -25,11 +23,10 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
   const real = dashboard.real_portfolio;
   const packet = dashboard.advisor_packet;
   const hasHoldings = Boolean(real && real.positions.length > 0);
-  const warnings = hasHoldings && real ? real.stress.warnings : [];
   const singleBreaches = packet.portfolioRisk.singleNameBreaches;
   const sectorBreaches = packet.portfolioRisk.sectorBreaches;
   const dataBreaches = packet.portfolioRisk.staleDataWarnings;
-  const issueCount = packet.portfolioRisk.issueCount || warnings.length;
+  const issueCount = packet.portfolioRisk.issueCount;
   const sectors = Object.entries(real?.stress.sector_weights ?? {}).sort((a, b) => b[1] - a[1]);
   const topPositions = [...(real?.positions ?? [])].sort((a, b) => b.weight - a.weight).slice(0, 6);
   const topPosition = topPositions[0];
@@ -37,7 +34,11 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
     ...packet.recommendedPriority.blockedActions.map((message, index) => ({ id: `packet-${index}`, symbol: "Gate", reason: message, risk_flags: ["Hard risk gate active."] })),
     ...dashboard.recent_recommendations.filter((item) => item.status === "fail" || item.action === "AVOID")
   ].slice(0, 4);
-  const maxSingleStock = Number(dashboard.risk_rules.max_single_stock_weight ?? 0.08);
+  const radarMetrics = riskRadarMetrics(dashboard);
+  const selectedPolicy = pickSelectedPolicy(dashboard);
+  const blockers = deriveRiskBlockers(packet, selectedPolicy);
+  const maxSingleStock = selectedPolicy?.singleStock?.hardBuyBlock
+    ?? Number(dashboard.risk_rules.max_single_stock_weight ?? 0.08);
   const unknownWeight = real?.stress.unknown_sector_weight ?? 0;
   const topRisk = dashboard.advisor_trace.top_risks[0];
   const firstAction = packet.recommendedPriority.firstAction;
@@ -126,6 +127,41 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         ))}
       </section>
 
+      <SignalPanel className="risk-radar-panel" testId="risk-radar-panel">
+        <div className="panel-label-row">
+          <span>Risk radar</span>
+          <Badge tone={issueCount ? "watch" : "live"}>{issueCount ? `${issueCount} issues` : "Balanced"}</Badge>
+        </div>
+        <RiskRadar metrics={radarMetrics} />
+        <p className="visual-explainer">
+          Six axes: concentration · sector pressure · data quality · liquidity · drawdown · factor crowding.
+          Each axis is driven by deterministic gates the engine already computed — the LLM only narrates.
+        </p>
+      </SignalPanel>
+
+      {selectedPolicy && (
+        <SelectedPolicyCard
+          policy={selectedPolicy}
+          footnote="Policy is the source of truth for caps, blocks, and remediation. The LLM advises in narrative; the deterministic engine enforces these bands."
+        />
+      )}
+
+      {selectedPolicy && topPosition && (
+        <SignalPanel className="risk-radar-panel">
+          <div className="panel-label-row">
+            <span>{topPosition.symbol} versus single-stock policy</span>
+            <Badge tone={topPosition.weight >= selectedPolicy.singleStock.hardBuyBlock ? "fail" : topPosition.weight >= selectedPolicy.singleStock.warning ? "watch" : "live"}>
+              {pct(topPosition.weight)}
+            </Badge>
+          </div>
+          <SingleStockLadder
+            policy={selectedPolicy.singleStock}
+            currentWeight={topPosition.weight}
+            symbol={topPosition.symbol}
+          />
+        </SignalPanel>
+      )}
+
       <section className="risk-workbench">
         <SignalPanel className="exposure-stack-panel">
           <div className="panel-label-row">
@@ -140,7 +176,7 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
                     <strong>{position.symbol}</strong>
                     <span>
                       {money(position.market_value)} · {position.sector}
-                      {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over cap` : ""}
+                      {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over ${pct(maxSingleStock)} cap` : ""}
                     </span>
                   </div>
                   <i style={{ "--weight": Math.min(100, position.weight * 100) } as CSSProperties} />
@@ -175,51 +211,32 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         </SignalPanel>
       </section>
 
-      <section className="risk-workbench secondary">
-        <SignalPanel className="risk-list-panel">
-          <div className="panel-label-row">
-            <span>What to change</span>
-            {warnings.length ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+      <SignalPanel className="risk-blockers-panel" testId="risk-blockers-panel">
+        <div className="panel-label-row">
+          <span>Blockers · what clears each one</span>
+          <Badge tone={blockers.length ? "watch" : "pass"}>
+            {blockers.length ? `${blockers.length} active` : "All clear"}
+          </Badge>
+        </div>
+        {blockers.length ? (
+          <div className="risk-blocker-grid">
+            {blockers.slice(0, 8).map((blocker) => (
+              <RiskBlockerCard key={blocker.id} blocker={blocker} onAsk={onAsk} />
+            ))}
           </div>
-          <div className="risk-breach-list compact">
-            {issueCount ? (
-              [...singleBreaches, ...sectorBreaches, ...dataBreaches].slice(0, 6).map((breach) => (
-                <article key={breach.id}>
-                  <Badge tone={riskTone(breach.severity)}>Review</Badge>
-                  <strong>{breach.message}</strong>
-                  <p>{breach.blocksAdds ? "This blocks new similar exposure until the gate clears." : "Treat this as a data-quality warning before sizing."}</p>
-                </article>
-              ))
-            ) : (
-              <article>
-                <Badge tone="pass">Clear</Badge>
-                <strong>No immediate hard-rule breach</strong>
-                <p>Signal can focus on opportunity quality, data freshness, and whether new adds improve the current portfolio.</p>
-              </article>
-            )}
-          </div>
-        </SignalPanel>
+        ) : (
+          <EmptyState
+            title="No active blockers"
+            body="When a risk or data gate trips, the deterministic engine names the exact condition that would clear it."
+          />
+        )}
+        {blocked.length > 0 && (
+          <p className="visual-explainer">
+            Signal also has {blocked.length} candidate ideas marked not eligible right now (insufficient history, liquidity, or risk gates). They surface again automatically when their conditions clear.
+          </p>
+        )}
+      </SignalPanel>
 
-        <SignalPanel className="risk-guardrail-panel">
-          <div className="panel-label-row">
-            <span>Not eligible right now</span>
-            <Badge tone={blocked.length ? "fail" : "pass"}>{blocked.length ? `${blocked.length} ideas` : "None"}</Badge>
-          </div>
-          <div className="blocked-risk-grid compact">
-            {blocked.length ? (
-              blocked.map((item) => (
-                <article key={`${item.id}-${item.symbol}`}>
-                  <strong>{item.symbol}</strong>
-                  <p>{item.reason}</p>
-                  <small>{item.risk_flags[0] ?? "Risk/data gate failed before this could become an action."}</small>
-                </article>
-              ))
-            ) : (
-              <EmptyState title="No blocked add-ons" body="If an idea fails liquidity, drawdown, concentration, or data gates, Signal shows it here as not eligible." />
-            )}
-          </div>
-        </SignalPanel>
-      </section>
     </section>
   );
 }

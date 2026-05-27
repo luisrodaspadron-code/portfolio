@@ -1,7 +1,7 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { BrainCircuit, BriefcaseBusiness, KeyRound, ListChecks, MessageCircle, RefreshCw, ShieldAlert } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
-import { getAdvisorRun, getDashboard, refreshData, startAdvisorRun } from "./api";
+import { getAdvisorRun, getDashboard, refreshData, runAdvisorDeepReview, startAdvisorRun, streamAdvisorRunEvents } from "./api";
 import type { AdvisorRunStatus, Dashboard } from "./types";
 import { CommandPalette, type PaletteAction } from "./components/shell/CommandPalette";
 import { CommandRail, MobileDock, TopTelemetry } from "./components/shell/AppFrame";
@@ -38,41 +38,101 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!dashboard || document.hidden) return;
+    const timer = window.setInterval(() => {
+      void load();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [dashboard?.real_portfolio?.total_value]);
+
+  useEffect(() => {
     if (!activeRunId) {
       return;
     }
     let cancelled = false;
-    const poll = async () => {
+    const seenEventIds = new Set<number>();
+
+    const finalize = async (terminalStatus: string) => {
+      if (cancelled) return;
       try {
-        const run = await getAdvisorRun(activeRunId);
+        const finalRun = await getAdvisorRun(activeRunId);
         if (cancelled) return;
-        setActiveRun(run);
-        if (run.status !== "running") {
-          setBusy(false);
-          setBusyLabel("");
-          setActiveRunId(null);
-          await load();
-          setNotice({
-            tone: run.status === "failed" ? "error" : "success",
-            message: run.status === "failed"
-              ? run.error || run.fallback_reason || "Advisor cycle could not finish. The last valid dashboard is still available."
-              : "Advisor cycle complete"
-          });
-        }
+        setActiveRun(finalRun);
+        await load();
+        setNotice({
+          tone: finalRun.status === "failed" ? "error" : "success",
+          message: finalRun.status === "failed"
+            ? finalRun.error || finalRun.fallback_reason || "Advisor cycle could not finish. The last valid dashboard is still available."
+            : "Advisor cycle complete"
+        });
       } catch (error) {
+        if (cancelled) return;
+        setNotice({
+          tone: terminalStatus === "failed" ? "error" : "success",
+          message: error instanceof Error ? error.message : "Advisor cycle complete"
+        });
+      } finally {
         if (!cancelled) {
           setBusy(false);
           setBusyLabel("");
           setActiveRunId(null);
-          setNotice({ tone: "error", message: error instanceof Error ? error.message : "Unable to read advisor progress" });
         }
       }
     };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 700);
+
+    const close = streamAdvisorRunEvents(activeRunId, {
+      onEvent(event) {
+        if (event.eventId !== undefined) {
+          if (seenEventIds.has(event.eventId)) return;
+          seenEventIds.add(event.eventId);
+        }
+        setActiveRun((prev) => {
+          if (!prev) return prev;
+          const events = [...prev.events, event];
+          const isStepRunning = event.type === "step" && event.status === "running";
+          const currentStep = isStepRunning
+            ? {
+                step: event.title,
+                status: "running",
+                records: typeof event.metrics?.records === "number" ? Number(event.metrics.records) : 0,
+                started_at: event.timestamp,
+                finished_at: "",
+                message: event.detail,
+                technical_detail: event.source ?? "",
+              }
+            : prev.current_step;
+          const status = event.type === "run" ? event.status : prev.status;
+          return { ...prev, events, current_step: currentStep ?? prev.current_step, status };
+        });
+      },
+      onTerminal(status) {
+        void finalize(status);
+      },
+      onError(message) {
+        if (cancelled) return;
+        getAdvisorRun(activeRunId)
+          .then((run) => {
+            if (cancelled) return;
+            setActiveRun(run);
+            if (run.status !== "running") {
+              void finalize(run.status);
+            } else {
+              setNotice({ tone: "error", message });
+            }
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setNotice({ tone: "error", message });
+            setBusy(false);
+            setBusyLabel("");
+            setActiveRunId(null);
+          });
+      },
+    });
+
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      close();
     };
   }, [activeRunId]);
 
@@ -147,6 +207,10 @@ export function App() {
     }
   }
 
+  async function runDeepReview() {
+    await act("Deep competition review", runAdvisorDeepReview);
+  }
+
   async function reloadWithNotice(message: string) {
     await load();
     setNotice({ tone: "success", message });
@@ -157,6 +221,7 @@ export function App() {
   }
 
   const telemetry = useMemo(() => (dashboard ? telemetryState(dashboard) : []), [dashboard]);
+  const advisorStreaming = Boolean(activeRunId && activeRun?.status === "running");
   const displayedTelemetry = useMemo(
     () =>
       copilotRunning
@@ -165,14 +230,14 @@ export function App() {
               ? { ...item, value: "Running", tone: "live" as const, detail: "Ask Signal is reading the latest advisor packet." }
               : item
           )
-        : busy
+        : advisorStreaming
           ? telemetry.map((item) =>
               item.label === "AI"
-                ? { ...item, value: "Running", tone: "live" as const, detail: "Signal PM is running a local advisor workflow." }
+                ? { ...item, value: "Running", tone: "live" as const, detail: "Signal PM is running the advisor cycle. Live events streaming." }
                 : item
             )
         : telemetry,
-    [busy, copilotRunning, telemetry]
+    [advisorStreaming, copilotRunning, telemetry]
   );
   const decision = useMemo(() => (dashboard ? primaryDecision(dashboard) : null), [dashboard]);
   const screenContext = activeTab;
@@ -230,6 +295,7 @@ export function App() {
               onAsk={openCopilot}
               activeRun={activeRun}
               onRunAdvisor={() => void runAdvisorFlow()}
+              onDeepReview={() => void runDeepReview()}
             />
           )}
           {activeTab === "portfolio" && <PortfolioView dashboard={dashboard} onDone={reloadWithNotice} onError={showError} />}

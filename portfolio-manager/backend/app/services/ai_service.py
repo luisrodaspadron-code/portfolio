@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from json import JSONDecodeError
 from datetime import datetime, timezone
 from typing import Any
@@ -19,6 +20,11 @@ DEFAULT_AI_MODEL_CONFIG = {
         "model": "gpt-5.4-mini",
         "reasoningEffort": "low",
         "maxOutputTokens": 800,
+        "timeoutMs": 15_000,
+        "stream": False,
+        "purpose": "ui_status",
+        "requiresManualRun": False,
+        "promptVersion": "signal-prime-fast.v1",
     },
     "specialist": {
         "role": "Fundamental, technical, and macro synthesis from already-computed data",
@@ -26,6 +32,11 @@ DEFAULT_AI_MODEL_CONFIG = {
         "model": "gpt-5.4-mini",
         "reasoningEffort": "medium",
         "maxOutputTokens": 1500,
+        "timeoutMs": 30_000,
+        "stream": False,
+        "purpose": "specialist_synthesis",
+        "requiresManualRun": False,
+        "promptVersion": "signal-prime-specialist.v1",
     },
     "leadPM": {
         "role": "Final portfolio memo, ambiguity adjudication, and user-facing decision explanation",
@@ -33,6 +44,11 @@ DEFAULT_AI_MODEL_CONFIG = {
         "model": "gpt-5.5",
         "reasoningEffort": "medium",
         "maxOutputTokens": 2500,
+        "timeoutMs": 60_000,
+        "stream": False,
+        "purpose": "lead_pm_review",
+        "requiresManualRun": False,
+        "promptVersion": "signal-prime-leadpm.v1",
     },
     "deepCompetition": {
         "role": "Manual high-stakes competition review, not every refresh",
@@ -40,6 +56,11 @@ DEFAULT_AI_MODEL_CONFIG = {
         "model": "gpt-5.5",
         "reasoningEffort": "high",
         "maxOutputTokens": 5000,
+        "timeoutMs": 180_000,
+        "stream": False,
+        "purpose": "deep_competition_review",
+        "requiresManualRun": True,
+        "promptVersion": "signal-prime-deep.v1",
     },
 }
 
@@ -237,6 +258,8 @@ def user_safe_ai_error(exc: Exception) -> str:
         for phrase in ["json", "advisor decision", "advisor review", "model response", "missing field", "unterminated"]
     ):
         return "AI response format failed; quant-only fallback is active."
+    if isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower():
+        return "The local database was busy. Quant-only fallback is active; retry the review."
     return "OpenAI could not be reached. Quant-only fallback is active."
 
 
@@ -274,15 +297,25 @@ def insert_ai_run(conn, run: dict[str, Any]) -> None:
 
 def _normalize_route(route: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     reasoning = str(route.get("reasoningEffort") or route.get("reasoning_effort") or fallback["reasoningEffort"])
-    if reasoning not in {"none", "low", "medium", "high", "xhigh"}:
+    if reasoning not in {"none", "minimal", "low", "medium", "high", "xhigh"}:
         reasoning = fallback["reasoningEffort"]
     tokens = int(route.get("maxOutputTokens") or route.get("max_output_tokens") or fallback["maxOutputTokens"])
+    timeout_ms = int(route.get("timeoutMs") or route.get("timeout_ms") or fallback.get("timeoutMs", 30_000))
+    stream = bool(route.get("stream", fallback.get("stream", False)))
+    purpose = str(route.get("purpose") or fallback.get("purpose", "")).strip()[:64]
+    manual_only = bool(route.get("requiresManualRun", fallback.get("requiresManualRun", False)))
+    prompt_version = str(route.get("promptVersion") or fallback.get("promptVersion", "")).strip()[:64]
     return {
         "role": str(route.get("role") or fallback["role"]),
         "provider": str(route.get("provider") or fallback["provider"]),
         "model": str(route.get("model") or fallback["model"]).strip()[:80],
         "reasoningEffort": reasoning,
         "maxOutputTokens": max(200, min(tokens, 8000)),
+        "timeoutMs": max(2_000, min(timeout_ms, 600_000)),
+        "stream": stream,
+        "purpose": purpose,
+        "requiresManualRun": manual_only,
+        "promptVersion": prompt_version,
     }
 
 
@@ -321,6 +354,11 @@ def ai_runtime_settings(conn, route: str = "specialist") -> dict[str, Any]:
         "review_max_output_tokens": router["leadPM"]["maxOutputTokens"],
         "model_route": route,
         "model_router": router,
+        "timeout_ms": selected.get("timeoutMs"),
+        "stream": selected.get("stream"),
+        "purpose": selected.get("purpose"),
+        "requires_manual_run": selected.get("requiresManualRun"),
+        "prompt_version": selected.get("promptVersion"),
     }
 
 
