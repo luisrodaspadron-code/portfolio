@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signal PM</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script>
+      window.addEventListener("error", function (event) {
+        var root = document.getElementById("root");
+        if (root && !root.children.length) {
+          root.innerHTML =
+            '<pre style="margin:16px;padding:16px;border:1px solid #ff6b7c;border-radius:12px;color:#ffcad1;background:#23080d;white-space:pre-wrap">' +
+            String((event.error && event.error.stack) || event.message || "App failed to start").replace(/[<>&]/g, function (char) {
+              return { "<": "&lt;", ">": "&gt;", "&": "&amp;" }[char];
+            }) +
+            "</pre>";
+        }
+      });
+    </script>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

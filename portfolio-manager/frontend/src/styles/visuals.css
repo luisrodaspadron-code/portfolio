@@ -1,0 +1,329 @@
+.constellation-panel {
+  min-height: 520px;
+  padding: var(--space-5);
+}
+
+.constellation-wrap {
+  position: relative;
+  min-height: 438px;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(101, 255, 216, 0.11), transparent 42%),
+    rgba(1, 6, 5, 0.42);
+  border: 1px solid rgba(101, 255, 216, 0.1);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.constellation-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 0 38%, rgba(101, 255, 216, 0.07) 48%, transparent 58% 100%);
+  transform: translateX(-100%);
+  animation: signal-sweep 9s var(--ease) infinite;
+  pointer-events: none;
+}
+
+@keyframes signal-sweep {
+  0%,
+  58% {
+    transform: translateX(-100%);
+  }
+  76%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.constellation-legend {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 820;
+  pointer-events: none;
+}
+
+.constellation-legend span {
+  min-height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(1, 6, 5, 0.72);
+  backdrop-filter: blur(12px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--mint);
+  box-shadow: 0 0 14px rgba(101, 255, 216, 0.35);
+}
+
+.legend-dot.watch {
+  background: var(--amber);
+  box-shadow: 0 0 14px rgba(255, 180, 84, 0.28);
+}
+
+.legend-dot.danger {
+  background: var(--red);
+  box-shadow: 0 0 14px rgba(255, 107, 124, 0.28);
+}
+
+.constellation-wrap svg {
+  width: 100%;
+  height: 100%;
+  min-height: 390px;
+  display: block;
+}
+
+.constellation-grid line {
+  stroke: rgba(148, 255, 221, 0.12);
+  stroke-width: 1;
+}
+
+.axis-label {
+  fill: var(--faint);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.constellation-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.constellation-node .node-halo {
+  fill: url(#nodeGlow);
+  opacity: 0.48;
+}
+
+.constellation-node circle:not(.node-halo) {
+  fill: rgba(101, 255, 216, 0.28);
+  stroke: var(--mint);
+  stroke-width: 1.4;
+}
+
+.constellation-node.attention circle:not(.node-halo) {
+  fill: rgba(255, 180, 84, 0.24);
+  stroke: var(--amber);
+}
+
+.constellation-node.danger circle:not(.node-halo) {
+  fill: rgba(255, 107, 124, 0.22);
+  stroke: var(--red);
+}
+
+.constellation-node.danger .node-halo {
+  animation: risk-pulse 2.8s var(--ease) infinite;
+}
+
+@keyframes risk-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.68;
+  }
+}
+
+.constellation-node text {
+  fill: var(--ink);
+  font-size: 10px;
+  font-weight: 900;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.constellation-empty {
+  min-height: 438px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--muted);
+  padding: var(--space-6);
+}
+
+.constellation-empty strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+.orbital-ring {
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  box-shadow: inset 0 0 34px rgba(101, 255, 216, 0.1), 0 0 60px rgba(101, 255, 216, 0.1);
+}
+
+.risk-radar-wrap {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.risk-radar-wrap svg {
+  width: 100%;
+  max-width: 360px;
+  display: block;
+}
+
+.radar-ring,
+.radar-axis {
+  fill: none;
+  stroke: rgba(148, 255, 221, 0.15);
+}
+
+.radar-area {
+  fill: rgba(101, 255, 216, 0.16);
+  stroke: var(--mint);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 22px rgba(101, 255, 216, 0.16));
+}
+
+.radar-point {
+  fill: var(--mint);
+}
+
+.radar-point.attention {
+  fill: var(--amber);
+}
+
+.radar-point.danger {
+  fill: var(--red);
+}
+
+.radar-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.radar-label.danger {
+  fill: var(--red);
+}
+
+.radar-label.attention {
+  fill: var(--amber);
+}
+
+.radar-legend {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.radar-legend div {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  padding: var(--space-3);
+}
+
+.radar-legend span,
+.radar-legend small {
+  display: block;
+  color: var(--muted);
+}
+
+.radar-legend strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1.2rem;
+  margin: 4px 0;
+}
+
+.advisor-pipeline {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pipeline-step {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 58px;
+  padding: var(--space-3);
+}
+
+.pipeline-step.complete .ui-icon-slot {
+  color: var(--mint);
+}
+
+.pipeline-step.active .ui-icon-slot {
+  color: var(--cyan);
+}
+
+.pipeline-step.blocked .ui-icon-slot {
+  color: var(--red);
+}
+
+.pipeline-step strong,
+.pipeline-step span {
+  display: block;
+}
+
+.pipeline-step span {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.impact-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.impact-preview div {
+  display: grid;
+  grid-template-columns: 70px 68px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.impact-preview span {
+  color: var(--muted);
+}
+
+.impact-preview i,
+.allocation-stack i {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--mint), var(--cyan));
+  display: block;
+  min-width: 6px;
+}
+
+.impact-preview p {
+  margin: 0;
+  color: var(--muted);
+}

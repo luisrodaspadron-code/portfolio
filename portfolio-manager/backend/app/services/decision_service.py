@@ -1,0 +1,780 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from app.database import get_risk_rules
+from app.services.advisor_intelligence import TOOL_INVENTORY, build_advisor_packet, store_decision_packet, _stable_json
+from app.services.ai_service import (
+    _call_openai_response,
+    _effective_openai_api_key,
+    _extract_output_text,
+    _usage,
+    ai_failure_state,
+    ai_run_record,
+    ai_runtime_settings,
+    insert_ai_run,
+    json_schema_text_format,
+    parse_model_json_object,
+    user_safe_ai_error,
+)
+from app.services.copilot_service import ask_copilot
+from app.services.data_service import compute_universe_features
+from app.services.advisor_math import build_add_plan, build_trim_plan, cap_distance, data_quality_from_price
+from app.services.risk import evaluate_candidate, target_weight_for_candidate
+from app.services.universe_service import universe_status
+
+
+DECISION_FIELDS = [
+    "portfolio_verdict",
+    "holding_decisions",
+    "opportunity_decisions",
+    "execution_plan",
+    "staggering_guidance",
+    "entry_conditions",
+    "risks",
+    "data_used",
+    "missing_data",
+    "what_would_change_my_mind",
+]
+
+ALLOWED_DECISIONS = {"Hold", "Add", "Trim", "Rotate", "Stagger Entry", "Avoid", "Wait For Data"}
+
+DECISION_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": DECISION_FIELDS,
+    "additionalProperties": False,
+    "properties": {
+        "portfolio_verdict": {"type": "string"},
+        "holding_decisions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "opportunity_decisions": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+        "execution_plan": {"type": "array", "items": {"type": "string"}},
+        "staggering_guidance": {"type": "array", "items": {"type": "string"}},
+        "entry_conditions": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+        "data_used": {"type": "array", "items": {"type": "string"}},
+        "missing_data": {"type": "array", "items": {"type": "string"}},
+        "what_would_change_my_mind": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _text_list(value: Any, limit: int = 8) -> list[str]:
+    return [str(item) for item in _as_list(value)[:limit]]
+
+
+def _decision_label(value: Any, fallback: str) -> str:
+    text = str(value or fallback).strip().title()
+    aliases = {
+        "Stagger": "Stagger Entry",
+        "Wait": "Wait For Data",
+        "Wait For More Data": "Wait For Data",
+        "Do Nothing": "Hold",
+        "Keep": "Hold",
+        "Reduce": "Trim",
+        "Sell": "Trim",
+        "Buy": "Add",
+    }
+    text = aliases.get(text, text)
+    return text if text in ALLOWED_DECISIONS else fallback
+
+
+def _confidence_label(confidence: float, data_confidence: str, eligible: bool) -> str:
+    if not eligible:
+        return "Not eligible now"
+    if data_confidence != "fresh":
+        return "Data limited"
+    if confidence >= 0.72:
+        return "High conviction"
+    if confidence >= 0.58:
+        return "Constructive"
+    return "Needs confirmation"
+
+
+def _candidate_source(item: dict[str, Any] | None) -> str:
+    if not item:
+        return "missing"
+    source = item.get("price_source", "unknown")
+    age = int(item.get("source_data_age_days") or 0)
+    if source == "sample":
+        return "sample-only"
+    return "fresh" if age <= 7 else f"stale {age}d"
+
+
+def _evidence(item: dict[str, Any] | None) -> list[str]:
+    if not item:
+        return ["No sufficient price history is available yet."]
+    factors = item.get("factor_breakdown") or {}
+    return [
+        f"Composite score {item.get('score', 0):.2f}.",
+        f"Cross-sectional momentum {factors.get('cross_section_momentum', 0):.2f}.",
+        f"Time-series momentum {factors.get('time_series_momentum', 0):.2f}.",
+        f"Quality/profitability {factors.get('quality_profitability', 0):.2f}.",
+        f"Risk score {item.get('risk_score', 0):.2f}; max drawdown {item.get('max_drawdown', 0):.1%}.",
+        f"Source {_candidate_source(item)}.",
+    ]
+
+
+def _position_data_quality(position: dict[str, Any], feature: dict[str, Any] | None) -> dict[str, Any]:
+    if position.get("valuation_status") == "missing_price":
+        return {
+            "provider": "missing",
+            "sourceTimestamp": "",
+            "receivedAt": _now(),
+            "ageSeconds": 999_999_999,
+            "freshness": "missing",
+            "coverage": "missing",
+            "confidence": 0,
+            "warnings": ["No local price or imported average cost is available."],
+        }
+    if feature:
+        return data_quality_from_price(
+            provider=str(feature.get("price_source") or "unknown"),
+            source_timestamp=str(feature.get("latest_date") or ""),
+            asset_class=str(position.get("asset_class") or "stock"),
+            coverage="complete",
+            sample=feature.get("price_source") == "sample",
+        )
+    return {
+        "provider": "imported_cost_basis" if position.get("valuation_status") == "proxy" else "local_price",
+        "sourceTimestamp": "",
+        "receivedAt": _now(),
+        "ageSeconds": 999_999_999,
+        "freshness": "stale" if position.get("valuation_status") == "proxy" else "missing",
+        "coverage": "insufficient",
+        "confidence": 0.35,
+        "warnings": [position.get("valuation_note") or "Insufficient market history for full signal generation."],
+    }
+
+
+def _holding_decision(position: dict[str, Any], feature: dict[str, Any] | None, rules: dict[str, Any], total_value: float) -> dict[str, Any]:
+    current_weight = float(position.get("weight") or 0)
+    cap = rules["max_etf_weight"] if position.get("asset_class") == "ETF" else rules["max_single_stock_weight"]
+    source = _candidate_source(feature)
+    hard_cap_breach = current_weight > cap
+    reason_code = "HOLD_WITHIN_POLICY"
+    if position.get("valuation_status") == "missing_price":
+        decision = "Wait For Data"
+        target = min(current_weight, cap)
+        reason = "Signal PM needs a usable price before sizing this holding."
+        eligible = False
+        reason_code = "PRICE_MISSING"
+    elif hard_cap_breach:
+        decision = "Trim"
+        target = cap
+        reason = f"{position['symbol']} is above the risk cap, so the next action is to trim toward the cap even if deeper history is limited."
+        eligible = True
+        reason_code = "ETF_CAP_BREACH" if position.get("asset_class") == "ETF" else "SINGLE_NAME_CAP_BREACH"
+    elif feature is None:
+        decision = "Wait For Data"
+        target = min(current_weight, cap)
+        reason = "Signal PM cannot make a confident add-or-rotate decision until this holding has usable market history."
+        eligible = False
+        reason_code = "INSUFFICIENT_HISTORY"
+    elif (feature["score"] < -0.08 and current_weight > cap * 0.5) or (feature["risk_score"] > 0.68 and current_weight > cap * 0.5):
+        decision = "Trim"
+        target = max(0.01, min(current_weight * 0.65, cap))
+        reason = "The holding is large enough and weak enough on the current risk-adjusted evidence to justify a trim."
+        eligible = True
+        reason_code = "WEAK_RISK_ADJUSTED_SIGNAL"
+    elif feature["score"] > 0.12 and current_weight < cap * 0.75 and source == "fresh":
+        decision = "Add"
+        target = min(target_weight_for_candidate(feature, rules), cap)
+        reason = "The holding already fits the portfolio and has strong current quant evidence without breaching size rules."
+        eligible = True
+        reason_code = "ADD_ELIGIBLE"
+    else:
+        decision = "Hold"
+        target = min(max(current_weight, 0.01), cap)
+        reason = "The holding is not forcing a change right now; monitor it through the next advisor cycle."
+        eligible = True
+    data_confidence = "sample_only" if source == "sample-only" else "stale" if source.startswith("stale") else "fresh" if source == "fresh" else "missing"
+    confidence = float(feature.get("confidence", 0.25) if feature else 0.15)
+    confidence_label = "Risk breach" if hard_cap_breach and eligible else _confidence_label(confidence, data_confidence, eligible)
+    detail_payload: dict[str, Any] = {
+        "advisoryOnly": True,
+        "reasonCode": reason_code,
+        "capDistance": cap_distance(current_weight, cap),
+        "dataQuality": _position_data_quality(position, feature),
+        "blockers": [] if eligible else [reason],
+        "trimPlan": None,
+        "addPlan": None,
+    }
+    latest_price = float(position.get("latest_price") or 0)
+    if decision == "Trim" and latest_price > 0 and total_value > 0:
+        detail_payload["trimPlan"] = build_trim_plan(
+            total_portfolio_value=total_value,
+            current_position_value=float(position.get("market_value") or 0),
+            target_weight=float(target),
+            live_price=latest_price,
+            price_timestamp=str((feature or {}).get("latest_date") or ""),
+            quantity=float(position.get("quantity") or 0),
+            avg_cost=float(position.get("avg_cost") or 0),
+            fractional_shares=True,
+        )
+    if decision == "Add" and total_value > 0:
+        detail_payload["addPlan"] = build_add_plan(
+            total_portfolio_value=total_value,
+            target_weight=float(target),
+            current_sector_weight=0,
+            sector_cap=float(rules["max_sector_weight"]),
+        )
+    return {
+        "symbol": position["symbol"],
+        "item_type": "holding",
+        "decision": decision,
+        "plain_action": f"{decision} {position['symbol']}",
+        "reason": reason,
+        "target_weight": round(target, 4),
+        "current_weight": round(current_weight, 4),
+        "confidence_label": confidence_label,
+        "confidence_score": round(confidence, 4),
+        "eligibility": "eligible" if eligible else "needs_data",
+        "risk_check": "Hard risk cap checked; no automatic trade is placed.",
+        "quant_evidence": _evidence(feature),
+        "source_freshness": source,
+        "reason_code": reason_code,
+        "detail_payload": detail_payload,
+        "ai_commentary": "",
+    }
+
+
+def _opportunity_decision(candidate: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
+    target = target_weight_for_candidate(candidate, rules)
+    status, flags = evaluate_candidate(candidate, target, rules)
+    source = _candidate_source(candidate)
+    score = float(candidate.get("score") or 0)
+    if status == "fail":
+        decision = "Avoid"
+        reason = "The idea is not eligible now because hard risk or liquidity gates failed."
+        reason_code = "RISK_GATE_FAILED"
+    elif source != "fresh":
+        decision = "Wait For Data" if candidate.get("price_source") == "sample" else "Stagger Entry"
+        reason = "The idea has interesting signals, but confidence is reduced until live/recent data confirms the setup."
+        reason_code = "DATA_LIMITED"
+    elif score > 0.16 and float(candidate.get("risk_score") or 0) < 0.34:
+        decision = "Add"
+        reason = "This is one of the strongest eligible ideas after momentum, quality, liquidity, drawdown, and risk checks."
+        reason_code = "ADD_ELIGIBLE"
+    elif score > 0.08:
+        decision = "Stagger Entry"
+        reason = "The idea is constructive, but staged exposure is more appropriate than a single lump-sum move."
+        reason_code = "STAGGER_ENTRY_ELIGIBLE"
+    else:
+        decision = "Hold"
+        reason = "The evidence is not strong enough to displace current portfolio capital right now."
+        reason_code = "NOT_COMPETITIVE_ENOUGH"
+    data_confidence = "sample_only" if source == "sample-only" else "stale" if source.startswith("stale") else "fresh"
+    confidence = float(candidate.get("confidence") or 0.25)
+    blockers = flags if status == "fail" else []
+    add_plan = None
+    if decision in {"Add", "Stagger Entry"}:
+        add_plan = build_add_plan(
+            total_portfolio_value=0,
+            target_weight=float(target),
+            current_sector_weight=0,
+            sector_cap=float(rules["max_sector_weight"]),
+            blockers=flags,
+        )
+    return {
+        "symbol": candidate["symbol"],
+        "item_type": "opportunity",
+        "decision": decision,
+        "plain_action": f"{decision} {candidate['symbol']}",
+        "reason": reason,
+        "target_weight": round(target, 4),
+        "current_weight": 0,
+        "confidence_label": _confidence_label(confidence, data_confidence, status != "fail"),
+        "confidence_score": round(confidence, 4),
+        "eligibility": status,
+        "risk_check": "; ".join(flags) if flags else "Passed deterministic risk gates.",
+        "quant_evidence": _evidence(candidate),
+        "source_freshness": source,
+        "reason_code": reason_code,
+        "detail_payload": {
+            "advisoryOnly": True,
+            "reasonCode": reason_code,
+            "dataQuality": data_quality_from_price(
+                provider=str(candidate.get("price_source") or "unknown"),
+                source_timestamp=str(candidate.get("latest_date") or ""),
+                asset_class=str(candidate.get("asset_class") or "stock"),
+                coverage="complete",
+                sample=candidate.get("price_source") == "sample",
+            ),
+            "blockers": blockers,
+            "addPlan": add_plan,
+            "trimPlan": None,
+        },
+        "ai_commentary": "",
+    }
+
+
+def _deterministic_decision(conn, packet: dict[str, Any]) -> dict[str, Any]:
+    rules = get_risk_rules(conn)
+    features = compute_universe_features(conn)
+    by_symbol = {item["symbol"]: item for item in features}
+    real = packet["portfolio"]["real"]
+    holdings = real.get("positions", [])
+    total_value = float(real.get("total_value") or 0)
+    holding_symbols = {item["symbol"] for item in holdings}
+    holding_items = [_holding_decision(position, by_symbol.get(position["symbol"]), rules, total_value) for position in holdings]
+    opportunities = []
+    for candidate in features:
+        if candidate["symbol"] in holding_symbols:
+            continue
+        opportunities.append(_opportunity_decision(candidate, rules))
+        if len(opportunities) >= 10:
+            break
+    urgent_trims = [item for item in holding_items if item["decision"] == "Trim"]
+    add_items = [item for item in [*holding_items, *opportunities] if item["decision"] in {"Add", "Stagger Entry"}]
+    if not holdings:
+        verdict = "Import real holdings before trusting portfolio-specific decisions."
+    elif urgent_trims:
+        verdict = f"Review concentration first: {urgent_trims[0]['symbol']} is the highest-priority trim candidate."
+    elif add_items:
+        verdict = f"Portfolio can stay mostly intact; the strongest incremental idea is {add_items[0]['symbol']}."
+    else:
+        verdict = "Keep the portfolio broadly as-is for now; no eligible idea is strong enough to force a change."
+    sample_only = packet["data_quality"]["sample_only"]
+    return {
+        "portfolio_verdict": verdict,
+        "holding_decisions": holding_items,
+        "opportunity_decisions": opportunities,
+        "execution_plan": [
+            "No real trades are placed by Signal PM.",
+            "Address hard concentration trims before adding similar exposure.",
+            "For long-term adds, prefer 3 to 5 tranches over several weeks unless the next data refresh changes the signal.",
+        ],
+        "staggering_guidance": [
+            "Use staged entries for volatile or sample-data ideas.",
+            "Use a single allocation only when data is fresh, risk gates pass, and the target weight is small relative to portfolio value.",
+        ],
+        "entry_conditions": [
+            "Fresh provider data confirms the score and source age is seven days or less.",
+            "The idea remains above the portfolio's current weakest holding after risk and turnover penalties.",
+            "For IPO/special-situation names, wait for tradeable status, seasoning, filings, and liquidity before any add decision.",
+        ],
+        "risks": [
+            packet["data_quality"]["message"],
+            *packet["risk_breaches"][:4],
+        ],
+        "data_used": [
+            f"{packet['provider_freshness']['provider_mode']} price mode",
+            f"{universe_status(conn)['included_assets']} included universe assets",
+            "momentum, quality, value proxy, drawdown, liquidity, macro regime, and risk gates",
+        ],
+        "missing_data": ["Live provider data is required before treating sample-only ideas as high confidence."] if sample_only else [],
+        "what_would_change_my_mind": [
+            "A holding moves from risk breach to within cap after market movement or a staged trim.",
+            "A candidate loses trend/quality leadership in the next walk-forward snapshot.",
+            "SEC fundamentals materially weaken or live data becomes stale/rate-limited.",
+        ],
+    }
+
+
+def _parse_ai_decision(output_text: str) -> dict[str, Any]:
+    parsed = parse_model_json_object(output_text)
+    if not isinstance(parsed, dict):
+        raise ValueError("Advisor decision response was not a JSON object.")
+    for field in DECISION_FIELDS:
+        if field not in parsed:
+            raise ValueError(f"Advisor decision missing field: {field}")
+    return parsed
+
+
+def _normalize_item(item: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        item = {}
+    ai_reason = str(item.get("reason") or "").strip()
+    merged = {**fallback, **item}
+    merged["symbol"] = str(merged.get("symbol") or fallback["symbol"]).upper()
+    merged["decision"] = _decision_label(merged.get("decision"), fallback["decision"])
+    for key in ["plain_action", "reason", "confidence_label", "eligibility", "risk_check", "source_freshness", "ai_commentary"]:
+        merged[key] = str(merged.get(key) or fallback.get(key) or "")
+    merged["target_weight"] = float(merged.get("target_weight") or fallback.get("target_weight") or 0)
+    merged["current_weight"] = float(merged.get("current_weight") or fallback.get("current_weight") or 0)
+    merged["confidence_score"] = float(merged.get("confidence_score") or fallback.get("confidence_score") or 0)
+    merged["quant_evidence"] = _text_list(merged.get("quant_evidence") or fallback.get("quant_evidence"), 8)
+    merged["reason_code"] = str(fallback.get("reason_code") or "")
+    merged["detail_payload"] = fallback.get("detail_payload") or {}
+    if not merged["ai_commentary"] and ai_reason and ai_reason != fallback.get("reason"):
+        merged["ai_commentary"] = ai_reason
+    return merged
+
+
+def _enforce_decision(ai_decision: dict[str, Any], deterministic: dict[str, Any]) -> dict[str, Any]:
+    fallback_items = {
+        (item["item_type"], item["symbol"]): item
+        for item in [*deterministic["holding_decisions"], *deterministic["opportunity_decisions"]]
+    }
+    holding_ai = {str(item.get("symbol", "")).upper(): item for item in _as_list(ai_decision.get("holding_decisions")) if isinstance(item, dict)}
+    opportunity_ai = {str(item.get("symbol", "")).upper(): item for item in _as_list(ai_decision.get("opportunity_decisions")) if isinstance(item, dict)}
+
+    holding_items = []
+    opportunity_items = []
+    for fallback in deterministic["holding_decisions"]:
+        item = _normalize_item(holding_ai.get(fallback["symbol"], {}), fallback)
+        hard_trim = fallback["decision"] == "Trim" and "risk cap" in fallback.get("reason", "").lower()
+        if hard_trim and item["decision"] != "Trim":
+            item["decision"] = "Trim"
+            item["plain_action"] = f"Trim {item['symbol']}"
+            item["target_weight"] = fallback["target_weight"]
+            item["confidence_label"] = fallback["confidence_label"]
+            item["reason"] = (
+                f"{fallback['reason']} Backend guardrail kept this as a trim because concentration rules are already breached."
+            )
+        if fallback["decision"] == "Hold" and item["decision"] == "Trim":
+            item["decision"] = "Hold"
+            item["plain_action"] = f"Hold {item['symbol']}"
+            item["target_weight"] = fallback["target_weight"]
+            item["confidence_label"] = fallback["confidence_label"]
+            item["reason"] = (
+                f"{fallback['reason']} Backend guardrail avoided a low-value trim because this position is not a hard risk breach."
+            )
+        if fallback["eligibility"] in {"fail", "needs_data"} and item["decision"] in {"Add", "Rotate", "Stagger Entry"}:
+            item["decision"] = "Wait For Data" if fallback["eligibility"] == "needs_data" else "Avoid"
+            item["plain_action"] = f"{item['decision']} {item['symbol']}"
+            item["reason"] = f"{item['reason']} Backend guardrail corrected this because eligibility is {fallback['eligibility']}."
+        holding_items.append(item)
+    for fallback in deterministic["opportunity_decisions"]:
+        item = _normalize_item(opportunity_ai.get(fallback["symbol"], {}), fallback)
+        if fallback["eligibility"] == "fail" and item["decision"] in {"Add", "Rotate", "Stagger Entry"}:
+            item["decision"] = "Avoid"
+            item["plain_action"] = f"Avoid {item['symbol']}"
+            item["reason"] = f"{item['reason']} Backend guardrail blocked approval because quant risk gate failed."
+        opportunity_items.append(item)
+
+    return {
+        "portfolio_verdict": str(ai_decision.get("portfolio_verdict") or deterministic["portfolio_verdict"]),
+        "holding_decisions": holding_items,
+        "opportunity_decisions": opportunity_items,
+        "execution_plan": _text_list(ai_decision.get("execution_plan") or deterministic["execution_plan"], 8),
+        "staggering_guidance": _text_list(ai_decision.get("staggering_guidance") or deterministic["staggering_guidance"], 6),
+        "entry_conditions": _text_list(ai_decision.get("entry_conditions") or deterministic["entry_conditions"], 8),
+        "risks": _text_list(ai_decision.get("risks") or deterministic["risks"], 8),
+        "data_used": _text_list(ai_decision.get("data_used") or deterministic["data_used"], 8),
+        "missing_data": _text_list(ai_decision.get("missing_data") or deterministic["missing_data"], 8),
+        "what_would_change_my_mind": _text_list(ai_decision.get("what_would_change_my_mind") or deterministic["what_would_change_my_mind"], 8),
+    }
+
+
+def _decision_context(packet: dict[str, Any], deterministic: dict[str, Any], universe: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "objective": packet["objective"],
+        "decision_boundary": packet["decision_boundary"],
+        "tool_inventory": TOOL_INVENTORY,
+        "portfolio": packet["portfolio"]["real"],
+        "risk_rules": packet["risk_rules"],
+        "risk_breaches": packet["risk_breaches"],
+        "data_quality": packet["data_quality"],
+        "provider_freshness": packet["provider_freshness"],
+        "macro_regime": packet["macro_regime"],
+        "market_universe": universe,
+        "top_opportunities": [
+            {
+                "symbol": item["symbol"],
+                "name": item["name"],
+                "asset_class": item["asset_class"],
+                "sector": item["sector"],
+                "score": item["score"],
+                "confidence": item["confidence"],
+                "risk_score": item["risk_score"],
+                "source_data_age_days": item.get("source_data_age_days"),
+                "price_source": item.get("price_source"),
+                "factor_breakdown": item.get("factor_breakdown"),
+            }
+            for item in packet["top_opportunities"][:16]
+        ],
+        "deterministic_decision": deterministic,
+    }
+
+
+def _store_decision(
+    conn,
+    *,
+    packet: dict[str, Any],
+    decision: dict[str, Any],
+    model: str,
+    status: str,
+    tokens: dict[str, int] | None = None,
+    response_id: str = "",
+    fallback_reason: str = "",
+) -> dict[str, Any]:
+    token_values = tokens or {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    cursor = conn.execute(
+        """
+        INSERT INTO decision_runs
+        (packet_hash, model, status, portfolio_verdict, execution_plan, staggering_guidance, entry_conditions,
+         risks, data_used, missing_data, what_would_change_my_mind, fallback_reason,
+         input_tokens, output_tokens, total_tokens, response_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            packet["packet_hash"],
+            model,
+            status,
+            decision["portfolio_verdict"],
+            json.dumps(decision["execution_plan"]),
+            json.dumps(decision["staggering_guidance"]),
+            json.dumps(decision["entry_conditions"]),
+            json.dumps(decision["risks"]),
+            json.dumps(decision["data_used"]),
+            json.dumps(decision["missing_data"]),
+            json.dumps(decision["what_would_change_my_mind"]),
+            fallback_reason,
+            token_values["input_tokens"],
+            token_values["output_tokens"],
+            token_values["total_tokens"],
+            response_id,
+        ),
+    )
+    run_id = int(cursor.lastrowid)
+    for item in [*decision["holding_decisions"], *decision["opportunity_decisions"]]:
+        conn.execute(
+            """
+            INSERT INTO decision_items
+            (decision_run_id, symbol, item_type, decision, plain_action, reason, target_weight, current_weight,
+             confidence_label, confidence_score, eligibility, risk_check, quant_evidence, ai_commentary, source_freshness,
+             reason_code, detail_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                item["symbol"],
+                item["item_type"],
+                item["decision"],
+                item["plain_action"],
+                item["reason"],
+                item["target_weight"],
+                item["current_weight"],
+                item["confidence_label"],
+                item["confidence_score"],
+                item["eligibility"],
+                item["risk_check"],
+                json.dumps(item["quant_evidence"]),
+                item.get("ai_commentary", ""),
+                item["source_freshness"],
+                item.get("reason_code", ""),
+                json.dumps(item.get("detail_payload") or {}),
+            ),
+        )
+    return latest_decision(conn) or {}
+
+
+def latest_decision(conn) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM decision_runs ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        return None
+    decision = dict(row)
+    for key in ["execution_plan", "staggering_guidance", "entry_conditions", "risks", "data_used", "missing_data", "what_would_change_my_mind"]:
+        decision[key] = json.loads(decision[key] or "[]")
+    items = conn.execute("SELECT * FROM decision_items WHERE decision_run_id = ? ORDER BY item_type, id", (decision["id"],)).fetchall()
+    decoded = []
+    for item in items:
+        current = dict(item)
+        current["quant_evidence"] = json.loads(current["quant_evidence"] or "[]")
+        current["detail_payload"] = json.loads(current.get("detail_payload") or "{}")
+        decoded.append(current)
+    if decoded and any(not item.get("detail_payload") or not item.get("reason_code") for item in decoded):
+        try:
+            packet = build_advisor_packet(conn)
+            deterministic = _deterministic_decision(conn, packet)
+            deterministic_items = {
+                (item["item_type"], item["symbol"]): item
+                for item in [*deterministic["holding_decisions"], *deterministic["opportunity_decisions"]]
+            }
+            for item in decoded:
+                fallback = deterministic_items.get((item["item_type"], item["symbol"]))
+                if not fallback:
+                    continue
+                item["reason_code"] = item.get("reason_code") or fallback.get("reason_code", "")
+                item["detail_payload"] = item.get("detail_payload") or fallback.get("detail_payload", {})
+        except Exception:
+            # Missing receipt details should never block the dashboard; a fresh run will persist them.
+            pass
+    decision["holding_decisions"] = [item for item in decoded if item["item_type"] == "holding"]
+    decision["opportunity_decisions"] = [item for item in decoded if item["item_type"] == "opportunity"]
+    return decision
+
+
+def run_advisor_decision(conn, force: bool = False) -> dict[str, Any]:
+    packet = build_advisor_packet(conn)
+    store_decision_packet(conn, packet)
+    if not force:
+        existing = conn.execute("SELECT id FROM decision_runs WHERE packet_hash = ? AND status IN ('success', 'rules_based') ORDER BY id DESC LIMIT 1", (packet["packet_hash"],)).fetchone()
+        if existing:
+            return latest_decision(conn) or {}
+    deterministic = _deterministic_decision(conn, packet)
+    ai_settings = ai_runtime_settings(conn, "leadPM")
+    model = ai_settings["model"]
+    api_key = _effective_openai_api_key(conn)
+    if not api_key:
+        return _store_decision(
+            conn,
+            packet=packet,
+            decision=deterministic,
+            model=model,
+            status="rules_based",
+            fallback_reason="OpenAI key is not connected.",
+        )
+
+    universe = universe_status(conn)
+    payload = {
+        "model": model,
+        "instructions": (
+            "You are Signal PM's senior portfolio manager. Review the supplied deterministic quant decision packet and return strict JSON. "
+            "You must make clear portfolio decisions: Hold, Add, Trim, Rotate, Stagger Entry, Avoid, or Wait For Data. "
+            "Use only supplied data. Do not invent prices, news, filings, price targets, IPO facts, or forecasts. "
+            "Entry guidance must be long-term and conditional: use volatility bands, data freshness, trend, valuation/fundamental triggers, and stagger-vs-lump-sum logic. "
+            "You cannot approve an Add/Rotate/Stagger Entry where eligibility or risk gates fail. "
+            "Do not repeat every deterministic item; include only the holdings/opportunities where your critique materially changes priority or explanation, at most 2 holdings and 2 opportunities. "
+            "For each included item, include an ai_commentary sentence explaining your PM critique in plain English. "
+            "Return exactly these fields: portfolio_verdict, holding_decisions, opportunity_decisions, execution_plan, staggering_guidance, entry_conditions, risks, data_used, missing_data, what_would_change_my_mind."
+        ),
+        "input": _stable_json(_decision_context(packet, deterministic, universe)),
+        "max_output_tokens": ai_settings["max_output_tokens"],
+        "reasoning": {"effort": ai_settings["reasoning_effort"]},
+        "text": json_schema_text_format("advisor_decision", DECISION_JSON_SCHEMA, "Portfolio-level decision review."),
+    }
+    started_at = _now()
+    response_payload: dict[str, Any] | None = None
+    try:
+        response_payload = _call_openai_response(payload, api_key)
+        parsed = _parse_ai_decision(_extract_output_text(response_payload))
+        decision = _enforce_decision(parsed, deterministic)
+        tokens = _usage(response_payload)
+        insert_ai_run(
+            conn,
+            ai_run_record(
+                provider="openai",
+                model=model,
+                purpose="advisor_decision",
+                status="success",
+                started_at=started_at,
+                tokens=tokens,
+                response_id=str(response_payload.get("id") or ""),
+            ),
+        )
+        return _store_decision(
+            conn,
+            packet=packet,
+            decision=decision,
+            model=model,
+            status="success",
+            tokens=tokens,
+            response_id=str(response_payload.get("id") or ""),
+        )
+    except Exception as exc:
+        status = ai_failure_state(exc)
+        fallback_reason = user_safe_ai_error(exc)
+        tokens = _usage(response_payload) if response_payload else None
+        insert_ai_run(
+            conn,
+            ai_run_record(
+                provider="openai",
+                model=model,
+                purpose="advisor_decision",
+                status=status,
+                started_at=started_at,
+                tokens=tokens,
+                error=str(exc),
+            ),
+        )
+        return _store_decision(
+            conn,
+            packet=packet,
+            decision=deterministic,
+            model=model,
+            status="fallback",
+            tokens=tokens,
+            fallback_reason=fallback_reason,
+        )
+
+
+def run_live_advisor_eval(conn) -> dict[str, Any]:
+    if not _effective_openai_api_key(conn):
+        raise ValueError("Connect an OpenAI key before running live advisor E2E validation.")
+    decision = run_advisor_decision(conn, force=True)
+    if decision.get("status") != "success":
+        rubric = {
+            "grounded_in_holdings": bool(decision.get("holding_decisions")),
+            "clear_actions": bool(decision.get("holding_decisions") or decision.get("opportunity_decisions")),
+            "mentions_quant_or_risk": True,
+            "explains_uncertainty": True,
+            "records_tokens": False,
+        }
+        conn.execute(
+            """
+            INSERT INTO advisor_eval_runs (status, model, decision_run_id, rubric, questions, total_tokens, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "failed",
+                decision.get("model", ai_runtime_settings(conn)["model"]),
+                decision.get("id"),
+                json.dumps(rubric),
+                json.dumps([]),
+                int(decision.get("total_tokens") or 0),
+                decision.get("fallback_reason", "Live advisor decision did not succeed."),
+            ),
+        )
+        return latest_eval(conn) or {}
+    questions = [
+        "What is the biggest risk in my current portfolio?",
+        "Should I keep, trim, or add to my current holdings?",
+        "What outside assets did you consider and why are the top opportunities worthwhile?",
+        "How did IPOs or special situations affect this decision?",
+        "What would change your mind?",
+    ]
+    answers = []
+    total_tokens = int(decision.get("total_tokens") or 0)
+    for question in questions:
+        answer = ask_copilot(conn, question, screen_context="live_eval")
+        answers.append({"question": question, "answer": answer})
+        total_tokens += int(answer.get("total_tokens") or 0)
+    combined = " ".join([decision.get("portfolio_verdict", ""), *[item["answer"].get("answer", "") for item in answers]]).lower()
+    action_words = {"hold", "add", "trim", "rotate", "stagger", "avoid", "wait"}
+    rubric = {
+        "grounded_in_holdings": bool(decision.get("holding_decisions")),
+        "clear_actions": any(word in combined for word in action_words),
+        "mentions_quant_or_risk": any(word in combined for word in ["quant", "risk", "momentum", "freshness", "source", "drawdown"]),
+        "explains_uncertainty": any(word in combined for word in ["missing", "stale", "sample", "limited", "uncertain", "rate"]),
+        "records_tokens": total_tokens > 0,
+    }
+    status = "pass" if all(rubric.values()) else "review"
+    conn.execute(
+        """
+        INSERT INTO advisor_eval_runs (status, model, decision_run_id, rubric, questions, total_tokens)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            status,
+            decision.get("model", ai_runtime_settings(conn)["model"]),
+            decision.get("id"),
+            json.dumps(rubric),
+            json.dumps(answers),
+            total_tokens,
+        ),
+    )
+    return latest_eval(conn) or {}
+
+
+def latest_eval(conn) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM advisor_eval_runs ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        return None
+    item = dict(row)
+    item["rubric"] = json.loads(item["rubric"] or "{}")
+    item["questions"] = json.loads(item["questions"] or "[]")
+    return item

@@ -1,0 +1,600 @@
+@media (max-width: 1240px) {
+  .signal-app {
+    grid-template-columns: 92px minmax(0, 1fr);
+  }
+
+  .command-rail {
+    padding-inline: var(--space-3);
+  }
+
+  .signal-brand {
+    grid-template-columns: 48px;
+    justify-content: center;
+  }
+
+  .signal-brand > div:not(.signal-mark),
+  .command-rail nav button span,
+  .rail-footer {
+    display: none;
+  }
+
+  .command-rail nav button {
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+@media (max-width: 1080px) {
+  .command-deck,
+  .now-command-grid,
+  .now-intelligence-grid,
+  .portfolio-detail-grid,
+  .operating-grid,
+  .operating-grid.lean,
+  .risk-cockpit,
+  .risk-brief-grid,
+  .risk-workbench,
+  .risk-priority-grid,
+  .risk-deck-grid,
+  .execution-grid,
+  .opportunity-strip,
+  .actions-summary-strip,
+  .intelligence-grid,
+  .import-command,
+  .memo-intel {
+    grid-template-columns: 1fr;
+  }
+
+  .constellation-panel,
+  .advisor-command {
+    min-height: auto;
+  }
+
+  .top-telemetry {
+    border-radius: var(--radius);
+    grid-template-columns: 1fr auto;
+  }
+
+  .telemetry-items {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .now-grid,
+  .now-trace-grid,
+  .operating-grid,
+  .operating-grid.lean,
+  .portfolio-metrics,
+  .action-queue-panel,
+  .advisor-trace-grid,
+  .insight-action-board,
+  .decision-path,
+  .evidence-strip,
+  .decision-mini-grid,
+  .portfolio-pulse-grid,
+  .change-grid,
+  .decision-receipt-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .run-console-head,
+  .run-audit-grid,
+  .run-step-rail article,
+  .run-event-terminal article {
+    grid-template-columns: 1fr;
+  }
+
+  .run-console-actions {
+    justify-content: stretch;
+  }
+
+  .run-console-actions .command-button {
+    width: 100%;
+  }
+
+  .run-event-metric {
+    text-align: left;
+  }
+
+  .provider-row {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .signal-app {
+    display: block;
+    width: 100%;
+    max-width: 100vw;
+    overflow: hidden;
+  }
+
+  .command-rail {
+    display: none;
+  }
+
+  .signal-workspace {
+    width: 100%;
+    max-width: 100vw;
+    padding: 12px 12px 96px;
+    overflow: hidden;
+  }
+
+  .signal-workspace > *,
+  .top-telemetry,
+  .command-deck,
+  .now-grid,
+  .operating-grid,
+  .operating-grid.lean,
+  .now-intelligence-grid,
+  .portfolio-detail-grid,
+  .risk-cockpit,
+  .intelligence-grid,
+  .memo-intel,
+  .import-command {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .top-telemetry {
+    position: static;
+    grid-template-columns: 1fr;
+    border-radius: 24px;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .telemetry-items {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    order: 3;
+    min-width: 0;
+  }
+
+  .telemetry-item {
+    min-height: 44px;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: 14px;
+    padding: 5px 2px;
+    font-size: 0.62rem;
+  }
+
+  .telemetry-item span {
+    display: block;
+    color: var(--muted);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-transform: uppercase;
+    font-size: 0.54rem;
+    letter-spacing: 0;
+  }
+
+  .telemetry-item strong {
+    max-width: 100%;
+    font-size: 0.67rem;
+  }
+
+  .telemetry-search {
+    width: 100%;
+  }
+
+  .top-telemetry > .command-button {
+    width: 100%;
+    min-width: 0;
+    padding-inline: var(--space-3);
+  }
+
+  .top-telemetry > .command-button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .connections-command {
+    min-height: 0;
+  }
+
+  .provider-row {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.72fr);
+    gap: var(--space-3);
+    align-items: start;
+    padding: var(--space-3);
+  }
+
+  .provider-main {
+    align-items: start;
+  }
+
+  .provider-state {
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+
+  .provider-state > div {
+    justify-items: start;
+  }
+
+  .provider-state small {
+    text-align: left;
+  }
+
+  .provider-actions {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .provider-actions .command-button {
+    width: 100%;
+    padding-inline: var(--space-2);
+  }
+
+  .command-button,
+  .link-button {
+    min-width: 0;
+  }
+
+  .advisor-command {
+    padding: var(--space-5);
+    min-height: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .advisor-command h1 {
+    font-size: clamp(2.1rem, 9vw, 3.15rem);
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .advisor-command p {
+    margin-top: var(--space-4);
+    font-size: 0.98rem;
+  }
+
+  .command-primary-row {
+    margin-top: var(--space-5);
+  }
+
+  .command-primary-row,
+  .import-footer,
+  .drawer-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .command-primary-row .command-button,
+  .import-footer .command-button,
+  .import-footer .link-button,
+  .drawer-actions .command-button {
+    width: 100%;
+  }
+
+  .risk-radar-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  .next-action-strip,
+  .quant-health-grid,
+  .exposure-heatmap,
+  .queue-card dl,
+  .detail-score-row,
+  .audit-grid,
+  .backtest-evidence {
+    grid-template-columns: 1fr;
+  }
+
+  .portfolio-pulse-grid,
+  .receipt-math-grid,
+  .change-grid,
+  .actions-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .execution-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-row {
+    grid-template-columns: minmax(96px, 0.24fr) minmax(0, 1fr) minmax(128px, 0.3fr);
+  }
+
+  .execution-weight {
+    grid-column: auto;
+  }
+
+  .ai-router-editor article {
+    grid-template-columns: 1fr;
+  }
+
+  .data-grid-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-grid,
+  .table-shell {
+    overflow-x: auto;
+  }
+
+  .preview-grid div {
+    min-width: 360px;
+  }
+
+  .mobile-dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 30;
+    min-height: 62px;
+    border: 1px solid var(--line-strong);
+    border-radius: 24px;
+    background: rgba(4, 10, 9, 0.94);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 26px 70px rgba(0, 0, 0, 0.56);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .mobile-dock .dock-button {
+    width: 100%;
+    min-height: 50px;
+    border-radius: 18px;
+  }
+
+  .detail-drawer {
+    inset: auto 8px 8px;
+    top: 8px;
+    width: auto;
+  }
+
+  .notice {
+    left: 12px;
+    right: 12px;
+    bottom: 88px;
+    border-radius: var(--radius);
+  }
+
+  .audit-grid-two,
+  .action-row-card,
+  .action-row-main,
+  .risk-hero-v2,
+  .actions-hero-v2,
+  .exposure-stack > div,
+  .sector-stack > div,
+  .decision-hero-row,
+  .risk-cockpit,
+  .insight-action-card dl,
+  .confidence-explain {
+    grid-template-columns: 1fr;
+  }
+
+  .ask-signal-panel {
+    inset: auto 8px 8px;
+    top: 56px;
+    width: auto;
+    border-radius: 22px;
+  }
+
+  .copilot-input {
+    grid-template-columns: 1fr;
+  }
+
+  .process-banner {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+  }
+
+  .process-stage-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .now-answer-panel,
+  .advisor-verdict-panel {
+    padding: var(--space-5);
+  }
+
+  .now-answer-panel h1,
+  .risk-brief-hero h1 {
+    font-size: clamp(1.85rem, 7.4vw, 2.7rem);
+    overflow-wrap: anywhere;
+  }
+
+  .now-answer-panel {
+    gap: var(--space-3);
+  }
+
+  .now-answer-panel p {
+    font-size: 0.95rem;
+  }
+
+  .portfolio-pulse-grid {
+    gap: var(--space-2);
+  }
+
+  .now-primary-row,
+  .receipt-summary,
+  .verdict-action,
+  .verdict-open-action,
+  .risk-brief-hero,
+  .risk-workbench.secondary,
+  .receipt-timeline > div {
+    grid-template-columns: 1fr;
+  }
+
+  .now-primary-row .command-button {
+    width: 100%;
+  }
+
+  .risk-score-stack {
+    min-height: 74px;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    gap: var(--space-3);
+    justify-items: start;
+    text-align: left;
+  }
+
+  .risk-score-stack strong {
+    font-size: 2.15rem;
+  }
+
+  .risk-brief-hero {
+    min-height: 0;
+    align-items: start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .risk-brief-hero h1 {
+    margin-top: var(--space-2);
+    font-size: clamp(1.55rem, 6.4vw, 2.15rem);
+    line-height: 1.04;
+  }
+
+  .risk-brief-hero p {
+    line-height: 1.35;
+  }
+
+  .risk-hero-receipt {
+    width: 100%;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .risk-hero-receipt strong {
+    font-size: 1.2rem;
+  }
+
+  .risk-brief-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .signal-workspace {
+    padding-inline: 10px;
+  }
+
+  .process-stage-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .advisor-command,
+  .pulse-card,
+  .metric-tile,
+  .trace-card,
+  .trend-panel,
+  .robo-flow-panel,
+  .pipeline-panel,
+  .risk-mini-panel,
+  .setup-focus-panel,
+  .decision-summary-panel,
+  .risk-hero-v2,
+  .actions-hero-v2,
+  .risk-fix-panel,
+  .exposure-stack-panel,
+  .risk-list-panel,
+  .sector-stack-panel,
+  .risk-guardrail-panel,
+  .execution-plan-panel,
+  .decision-list-panel,
+  .opportunity-strip-panel,
+  .evidence-strip-panel,
+  .audit-panel,
+  .radar-panel,
+  .breach-panel,
+  .concentration-panel,
+  .exposure-panel,
+  .blocked-risk-panel,
+  .insight-lane,
+  .actions-command,
+  .risk-command,
+  .intelligence-command,
+  .connections-command,
+  .ai-audit,
+  .connection-group,
+  .holdings-grid-panel,
+  .preview-panel,
+  .allocation-panel,
+  .intel-panel,
+  .research-intel-panel,
+  .import-command {
+    padding: var(--space-4);
+  }
+
+  .dock-button {
+    font-size: 0.58rem;
+  }
+
+  .risk-bars > div {
+    grid-template-columns: 46px minmax(0, 1fr) 52px;
+  }
+
+  .position-movers,
+  .decision-mini-grid,
+  .risk-brief-grid,
+  .provider-row {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-row {
+    grid-template-columns: minmax(86px, 0.32fr) minmax(0, 1fr);
+  }
+
+  .execution-weight {
+    grid-column: 1 / -1;
+  }
+
+  .trend-axis {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+
+  .trend-axis span:last-child {
+    text-align: left;
+  }
+
+  .constellation-wrap,
+  .constellation-wrap svg,
+  .constellation-empty {
+    min-height: 330px;
+  }
+
+  .telemetry-items {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  .advisor-command h1,
+  .import-copy h1,
+  .actions-command h1,
+  .risk-command h1,
+  .intelligence-command h1,
+  .connections-command h1 {
+    font-size: clamp(1.9rem, 11vw, 2.65rem);
+    line-height: 0.98;
+    max-width: 100%;
+  }
+}
