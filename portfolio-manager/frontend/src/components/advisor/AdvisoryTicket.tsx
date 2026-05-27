@@ -48,6 +48,12 @@ function buildTicketSummary(action: AdvisorPacketAction): string {
   const head = `ADVISORY TICKET — NO ORDER PLACED\n${action.symbol} · ${titleCase(action.action)}\n`;
   const provenance = `Source: ${action.dataQuality?.provider ?? "n/a"} · ${action.dataQuality?.freshness ?? "n/a"}\n`;
   if (trim) {
+    const guidance = trim.executionGuidance;
+    const guidanceText = guidance
+      ? `Broker checklist: ${titleCase(guidance.recommendedStyle.replace(/_/g, " "))} · ${titleCase(guidance.preferredOrderType.replace(/_/g, " "))}\n` +
+        `Suggested limit floor: ${money(guidance.suggestedLimitPrice)} · stop/review below ${money(guidance.stopReviewBelow)}\n` +
+        `Slices: ${guidance.slices.map((slice) => `${slice.shares} sh @ ${money(slice.suggestedLimitPrice)}`).join("; ")}\n`
+      : "";
     return (
       head +
       provenance +
@@ -59,6 +65,7 @@ function buildTicketSummary(action: AdvisorPacketAction): string {
       `Post-weight (compliant): ${pct(trim.estimatedPostWeightCompliant ?? trim.estimatedPostWeight)}\n` +
       `Policy threshold: ${pct(trim.policyThreshold ?? 0)}\n` +
       `Price used: ${money(trim.priceUsed)} · ${shortDateTime(trim.priceTimestamp)}\n` +
+      guidanceText +
       `Advisory-only. No order has been placed.`
     );
   }
@@ -117,6 +124,7 @@ export function AdvisoryTicket({
   const wholeCompliant = trim?.sharesToSellWholeCompliant ?? trim?.sharesToSellWhole ?? 0;
   const wholeReduceOnly = trim?.sharesToSellWholeReduceOnly ?? trim?.sharesToSellWhole ?? 0;
   const wholeMatches = wholeCompliant === wholeReduceOnly;
+  const trimGuidance = trim?.executionGuidance;
 
   const handleCopy = async () => {
     try {
@@ -166,6 +174,13 @@ export function AdvisoryTicket({
                 label="Price"
                 value={money(trim.priceUsed)}
                 hint={trim.priceTimestamp ? shortDateTime(trim.priceTimestamp) : undefined}
+              />
+            )}
+            {trimGuidance && (
+              <ActionRow
+                label="Broker checklist"
+                value={titleCase(trimGuidance.recommendedStyle.replace(/_/g, " "))}
+                hint={`${titleCase(trimGuidance.preferredOrderType.replace(/_/g, " "))} · ${money(trimGuidance.suggestedLimitPrice)} limit floor`}
               />
             )}
           </section>
@@ -257,6 +272,62 @@ export function AdvisoryTicket({
             />
           )}
           {trim.taxWarning && <ActionRow label="Tax" value={trim.taxWarning} />}
+        </section>
+      )}
+
+      {isTrim && trimGuidance && (
+        <section className="advisory-ticket-section trim-execution-guidance">
+          <header>
+            <ClipboardCheck size={14} />
+            <strong>Broker checklist</strong>
+            <Badge tone="neutral">{titleCase(trimGuidance.recommendedStyle.replace(/_/g, " "))}</Badge>
+          </header>
+          <div className="advisory-ticket-grid">
+            <ActionRow
+              label="Preferred order"
+              value={titleCase(trimGuidance.preferredOrderType.replace(/_/g, " "))}
+              hint={`${trimGuidance.timeInForce.toUpperCase()} · ${titleCase(trimGuidance.session.replace(/_/g, " "))}`}
+            />
+            <ActionRow
+              label="Suggested limit floor"
+              value={money(trimGuidance.suggestedLimitPrice)}
+              hint={`Reference ${money(trimGuidance.limitPriceReference)}`}
+            />
+            <ActionRow
+              label="Stop / rerun below"
+              value={money(trimGuidance.stopReviewBelow)}
+              hint="If the live quote is below this, refresh data and rerun."
+            />
+            <ActionRow
+              label="Slices"
+              value={`${trimGuidance.sliceCount}`}
+              hint={trimGuidance.slices.map((slice) => `${number(slice.shares)} sh`).join(" · ")}
+            />
+            {trimGuidance.primaryQuantityBasis === "fractional" && trimGuidance.wholeShareSlices?.length ? (
+              <ActionRow
+                label="Whole-share fallback"
+                value={trimGuidance.wholeShareSlices.map((slice) => `${number(slice.shares)} sh`).join(" · ")}
+                hint="Use this if the broker account does not accept fractional share sells."
+              />
+            ) : null}
+            {trimGuidance.singleOrderAlternative ? (
+              <ActionRow
+                label="All-at-once alternative"
+                value={`${number(trimGuidance.singleOrderAlternative.shares)} sh`}
+                hint={
+                  trimGuidance.allAtOnceAcceptable
+                    ? "Reasonable after refreshing the quote."
+                    : "Available as a checklist, but staging is preferred for this trim size."
+                }
+              />
+            ) : null}
+          </div>
+          {trimGuidance.stagingRationale && <p className="advisory-ticket-guidance-note">{trimGuidance.stagingRationale}</p>}
+          <ol className="advisory-ticket-guidance-list">
+            {trimGuidance.instructions.slice(0, 3).map((instruction) => (
+              <li key={instruction}>{instruction}</li>
+            ))}
+          </ol>
         </section>
       )}
 

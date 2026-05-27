@@ -77,7 +77,7 @@ def _data_quality(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _risk_breach_from_cap(symbol: str, detail: dict[str, Any], action: str) -> dict[str, Any] | None:
+def _risk_breach_from_cap(symbol: str, detail: dict[str, Any], action: str, target_weight: float = 0) -> dict[str, Any] | None:
     cap = (detail or {}).get("capDistance") or {}
     state = str(cap.get("state") or "")
     breached = bool(cap.get("breached"))
@@ -92,7 +92,13 @@ def _risk_breach_from_cap(symbol: str, detail: dict[str, Any], action: str) -> d
         limit = float(cap.get("hardBuyBlock") or cap.get("limit") or 0)
     else:
         limit = float(cap.get("limit") or cap.get("urgentReview") or 0)
+    target = float(target_weight or cap.get("target") or 0)
     severity = "danger" if action == "TRIM" or state in {"urgent_review", "extreme"} else "elevated"
+    state_label = str(state or "breach").replace("_", " ")
+    message = (
+        f"{symbol} is {_pct(observed)}; above the {state_label} threshold of {_pct(limit)}"
+        + (f" with remediation target {_pct(target)}." if target > 0 else ".")
+    )
     return {
         "id": f"{symbol.lower()}-single-name-cap",
         "severity": severity,
@@ -100,7 +106,7 @@ def _risk_breach_from_cap(symbol: str, detail: dict[str, Any], action: str) -> d
         "observed": observed,
         "limit": limit,
         "state": state or ("breached" if breached else "ok"),
-        "message": f"{symbol} is {_pct(observed - limit)} over its {_pct(limit)} cap.",
+        "message": message,
         "blocksAdds": True,
     }
 
@@ -204,6 +210,76 @@ def _normalize_trim_plan(
     normalized.setdefault("policyThreshold", round(threshold, 4))
     if price > 0 and "estimatedExecutedSellValue" not in normalized:
         normalized["estimatedExecutedSellValue"] = round(float(normalized.get("sharesToSell") or exact) * price, 2)
+    if "executionGuidance" not in normalized:
+        guidance_shares = float(normalized.get("sharesToSellWholeCompliant") or normalized.get("sharesToSellWhole") or exact)
+        guidance_value = guidance_shares * price if price > 0 else float(normalized.get("estimatedSellValue") or 0)
+        should_stage = guidance_value >= 10_000 or guidance_shares >= 25 or current_weight >= 0.25
+        slice_count = 1 if not should_stage else max(2, min(4, ceil(guidance_value / 10_000))) if guidance_value else 1
+        limit_price = round(price * 0.995, 2) if price > 0 else 0
+        stop_review = round(price * 0.98, 2) if price > 0 else 0
+        whole_total = int(guidance_shares) if guidance_shares >= 1 else 0
+        def slice_payload(index: int, shares: float) -> dict[str, Any]:
+            return {
+                "sliceNumber": index,
+                "shares": shares,
+                "estimatedValue": round(shares * price, 2),
+                "suggestedLimitPrice": limit_price,
+                "timeInForce": "day",
+                "condition": "Only after confirming a current bid/ask and portfolio value in the broker.",
+            }
+
+        whole_share_slices: list[dict[str, Any]] = []
+        if whole_total and slice_count > 1:
+            base = whole_total // slice_count
+            remainder = whole_total % slice_count
+            whole_share_slices = [
+                slice_payload(index + 1, base + (1 if index < remainder else 0))
+                for index in range(slice_count)
+            ]
+        elif whole_total:
+            whole_share_slices = [slice_payload(1, whole_total)]
+        else:
+            whole_share_slices = [slice_payload(1, round(guidance_shares, 4))]
+        slices = whole_share_slices
+        normalized["executionGuidance"] = {
+            "advisoryOnly": True,
+            "brokerActionLabel": "Create limit sell checklist",
+            "preferredOrderType": "limit_sell",
+            "timeInForce": "day",
+            "session": "regular_market_hours",
+            "recommendedStyle": "staged_limit_sells" if should_stage else "single_limit_sell",
+            "sliceCount": slice_count,
+            "limitPriceReference": round(price, 4) if price > 0 else 0,
+            "suggestedLimitPrice": limit_price,
+            "stopReviewBelow": stop_review,
+            "priceRefreshRequired": True,
+            "primaryQuantityBasis": "whole_share_compliant",
+            "slices": slices,
+            "wholeShareSlices": whole_share_slices,
+            "fractionalSlices": [],
+            "singleOrderAlternative": {
+                "shares": whole_total or round(guidance_shares, 4),
+                "estimatedValue": round(guidance_value, 2),
+                "suggestedLimitPrice": limit_price,
+                "timeInForce": "day",
+            },
+            "allAtOnceAcceptable": not should_stage,
+            "stagingRationale": (
+                "Staged limit sells are suggested because the trim is large relative to the portfolio or share count."
+                if should_stage
+                else "A single limit sell checklist is reasonable for this trim size after refreshing the quote."
+            ),
+            "instructions": [
+                "Refresh the live quote and bid/ask spread in the broker before using this checklist.",
+                "Use a limit sell checklist rather than a market sell when the reference price is stale or spread visibility is missing.",
+                "If the live price moves materially before entry, rerun the advisor instead of reusing this ticket.",
+            ],
+            "invalidation": [
+                "Live/reference price is below the stop-review price.",
+                "Provider freshness is stale or missing after refresh.",
+                "Position quantity, portfolio value, or policy preset changed.",
+            ],
+        }
     return normalized
 
 
@@ -236,7 +312,7 @@ def _position_decision(item: dict[str, Any], position: dict[str, Any] | None) ->
         "dataQuality": _data_quality(item),
         "riskBreaches": [
             breach
-            for breach in [_risk_breach_from_cap(item["symbol"], detail, _canonical_action(str(item.get("decision") or "")))]
+            for breach in [_risk_breach_from_cap(item["symbol"], detail, _canonical_action(str(item.get("decision") or "")), target_weight)]
             if breach
         ],
         "trimPlan": trim_plan,
@@ -328,6 +404,119 @@ def _data_sources(freshness: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _workflow_audit(packet: dict[str, Any]) -> dict[str, Any]:
+    source_matrix = (packet.get("sourceMatrix") or {}).get("matrix") or {}
+    first = packet.get("recommendedPriority", {}).get("firstAction")
+    gaps: list[dict[str, Any]] = []
+
+    def add_gap(area: str, severity: str, finding: str, action: str, clears_when: str) -> None:
+        gaps.append(
+            {
+                "area": area,
+                "severity": severity,
+                "finding": finding,
+                "action": action,
+                "clearsWhen": clears_when,
+            }
+        )
+
+    prices = source_matrix.get("prices") or {}
+    if prices.get("freshness") not in {"live", "recent"}:
+        add_gap(
+            "market_data",
+            "high",
+            f"Price source is {prices.get('freshness', 'missing')} via {prices.get('provider', 'unknown')}.",
+            "Refresh Alpaca or another configured market-data provider before using trim sizing.",
+            "Prices are live/recent under the selected policy.",
+        )
+    if any("sample" in str(warning).lower() or "fixture" in str(warning).lower() for warning in prices.get("warnings", [])):
+        add_gap(
+            "market_data",
+            "high",
+            "Market-data rows include local fixture/sample warnings.",
+            "Replace fixture pricing with a real provider refresh before treating numbers as broker-ready.",
+            "Price provider is a configured external source and warnings clear.",
+        )
+
+    liquidity = source_matrix.get("liquidity") or {}
+    if liquidity.get("coverage") != "complete" or liquidity.get("warnings"):
+        add_gap(
+            "liquidity",
+            "medium",
+            "Liquidity gates are not fully supported by clean volume coverage.",
+            "Refresh price/volume history and confirm average dollar volume before large tickets.",
+            "Liquidity coverage is complete with no stale/sample warnings.",
+        )
+
+    filings = source_matrix.get("filings") or {}
+    fundamentals = source_matrix.get("fundamentals") or {}
+    if filings.get("coverage") != "complete" or fundamentals.get("coverage") != "complete":
+        add_gap(
+            "fundamentals_filings",
+            "medium",
+            "SEC fundamentals/filings coverage is partial.",
+            "Treat fundamentals as supporting evidence only; do not block trims solely because company facts are partial.",
+            "Required holding symbols have current SEC/company-facts coverage or are marked not applicable.",
+        )
+
+    if not (source_matrix.get("events") or {}).get("usedInRun") and not (source_matrix.get("ipoCalendar") or {}).get("usedInRun"):
+        add_gap(
+            "events_opportunities",
+            "low",
+            "No event/news or IPO calendar provider is active.",
+            "Keep event-driven and recent-listing ideas in watch/restricted lanes until coverage exists.",
+            "Events/IPOs are configured or explicitly excluded from the strategy.",
+        )
+
+    if not (source_matrix.get("ai") or {}).get("usedInRun"):
+        add_gap(
+            "ai_narrative",
+            "low",
+            "Latest AI narrative review was not used; quant-only path is active.",
+            "Use deterministic receipt as source of truth; rerun AI only after provider status is healthy.",
+            "AI row shows used in latest run with no fallback warning.",
+        )
+
+    first_action_ready = False
+    required_before_broker: list[str] = []
+    if first and first.get("action") == "TRIM":
+        trim = first.get("trimPlan") or {}
+        guidance = trim.get("executionGuidance") or {}
+        first_action_ready = bool(trim and guidance and trim.get("sharesToSellWholeCompliant") is not None)
+        required_before_broker = [
+            "Refresh live quote and bid/ask spread.",
+            "Confirm broker share quantity and portfolio value.",
+            "Review tax impact if average cost is available.",
+            "Use the compliant share quantity if the goal is to clear the policy threshold in this review.",
+            "Rerun if live price drops below the ticket stop/review price.",
+        ]
+        if not first_action_ready:
+            add_gap(
+                "actionability",
+                "high",
+                "First trim action is missing a complete broker checklist.",
+                "Regenerate the canonical packet before showing this as actionable.",
+                "Trim plan includes compliant shares and executionGuidance.",
+            )
+    elif first:
+        required_before_broker = [
+            "Confirm the action still passes deterministic gates.",
+            "Refresh data before sizing.",
+            "Use staged entry only if the candidate remains eligible.",
+        ]
+
+    severity_rank = {"high": 3, "medium": 2, "low": 1}
+    worst = max((severity_rank.get(gap["severity"], 0) for gap in gaps), default=0)
+    status = "blocked_by_data" if worst >= 3 else "review_required" if gaps else "ready"
+    return {
+        "status": status,
+        "gapCount": len(gaps),
+        "firstActionReadyForBrokerReview": first_action_ready,
+        "requiredBeforeBroker": required_before_broker,
+        "gaps": gaps,
+    }
+
+
 def _decision_receipt(packet: dict[str, Any], decision: dict[str, Any] | None, next_review_at: str | None = None) -> dict[str, Any]:
     first = packet["recommendedPriority"]["firstAction"]
     if not first:
@@ -358,6 +547,7 @@ def _decision_receipt(packet: dict[str, Any], decision: dict[str, Any] | None, n
             "policyThreshold": trim.get("policyThreshold"),
             "priceUsed": trim.get("priceUsed"),
             "priceTimestamp": trim.get("priceTimestamp"),
+            "executionGuidance": trim.get("executionGuidance"),
         }
     blocked_actions = packet["recommendedPriority"].get("blockedActions") or []
     return {
@@ -485,6 +675,7 @@ def build_canonical_advisor_packet(conn, *, next_review_at: str | None = None) -
         },
     }
     packet_seed["recommendedPriority"] = _priority(positions, candidates, sector_breaches)
+    packet_seed["workflowAudit"] = _workflow_audit(packet_seed)
     packet_seed["packetHash"] = _stable_hash(packet_seed)
     packet_seed["decisionReceipt"] = _decision_receipt(packet_seed, decision, next_review_at)
     return packet_seed

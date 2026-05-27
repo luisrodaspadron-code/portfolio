@@ -115,11 +115,16 @@ def _confidence_label(confidence: float, data_confidence: str, eligible: bool) -
 def _candidate_source(item: dict[str, Any] | None) -> str:
     if not item:
         return "missing"
-    source = item.get("price_source", "unknown")
+    source = str(item.get("price_source", "unknown") or "unknown").lower()
     age = int(item.get("source_data_age_days") or 0)
-    if source == "sample":
+    if source == "sample" or "synthetic" in source or "fixture" in source or source.endswith("_test"):
         return "sample-only"
     return "fresh" if age <= 7 else f"stale {age}d"
+
+
+def _sample_like_price_source(item: dict[str, Any] | None) -> bool:
+    source = str((item or {}).get("price_source") or "").lower()
+    return source == "sample" or "synthetic" in source or "fixture" in source or source.endswith("_test")
 
 
 def _evidence(item: dict[str, Any] | None) -> list[str]:
@@ -160,7 +165,7 @@ def _position_data_quality(
             source_timestamp=str(feature.get("latest_date") or ""),
             asset_class=str(position.get("asset_class") or "stock"),
             coverage="complete",
-            sample=feature.get("price_source") == "sample",
+            sample=_sample_like_price_source(feature),
             policy=policy,
         )
         symbol = str(position.get("symbol") or "").upper()
@@ -483,7 +488,7 @@ def _opportunity_decision(
                 source_timestamp=str(candidate.get("latest_date") or ""),
                 asset_class=str(candidate.get("asset_class") or "stock"),
                 coverage="complete",
-                sample=candidate.get("price_source") == "sample",
+                sample=_sample_like_price_source(candidate),
                 policy=policy,
             ),
             "blockers": blockers,

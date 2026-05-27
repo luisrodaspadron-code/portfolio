@@ -457,6 +457,54 @@ export type TrimPlan = {
   policyThreshold?: number;
   priceUsed: number;
   priceTimestamp: string;
+  executionGuidance?: {
+    advisoryOnly: boolean;
+    brokerActionLabel: string;
+    preferredOrderType: string;
+    timeInForce: string;
+    session: string;
+    recommendedStyle: string;
+    sliceCount: number;
+    limitPriceReference: number;
+    suggestedLimitPrice: number;
+    stopReviewBelow: number;
+    priceRefreshRequired: boolean;
+    primaryQuantityBasis?: "fractional" | "whole_share_compliant";
+    slices: Array<{
+      sliceNumber: number;
+      shares: number;
+      estimatedValue: number;
+      suggestedLimitPrice: number;
+      timeInForce: string;
+      condition: string;
+    }>;
+    wholeShareSlices?: Array<{
+      sliceNumber: number;
+      shares: number;
+      estimatedValue: number;
+      suggestedLimitPrice: number;
+      timeInForce: string;
+      condition: string;
+    }>;
+    fractionalSlices?: Array<{
+      sliceNumber: number;
+      shares: number;
+      estimatedValue: number;
+      suggestedLimitPrice: number;
+      timeInForce: string;
+      condition: string;
+    }>;
+    singleOrderAlternative?: {
+      shares: number;
+      estimatedValue: number;
+      suggestedLimitPrice: number;
+      timeInForce: string;
+    };
+    allAtOnceAcceptable?: boolean;
+    stagingRationale?: string;
+    instructions: string[];
+    invalidation: string[];
+  };
   advisoryOnly: boolean;
   taxWarning?: string;
 };
@@ -917,6 +965,19 @@ export type AdvisorPacket = {
     doNext: string[];
     blockedActions: string[];
   };
+  workflowAudit?: {
+    status: string;
+    gapCount: number;
+    firstActionReadyForBrokerReview: boolean;
+    requiredBeforeBroker: string[];
+    gaps: Array<{
+      area: string;
+      severity: string;
+      finding: string;
+      action: string;
+      clearsWhen: string;
+    }>;
+  };
   decisionReceipt: {
     title: string;
     runId?: string;
@@ -925,7 +986,7 @@ export type AdvisorPacket = {
     noOrderPlaced: boolean;
     portfolioValueUsed?: number;
     firstAction?: string;
-    sizingMath?: null | Record<string, number | string | null | undefined>;
+    sizingMath?: null | Record<string, unknown>;
     hardGatesTripped?: string[];
     alternativesConsidered?: string[];
     dataLimitations?: string[];

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from json import JSONDecodeError
 from datetime import datetime, timezone
 from typing import Any
@@ -292,7 +293,16 @@ def _insert_ai_run(conn, run: dict[str, Any]) -> None:
 
 
 def insert_ai_run(conn, run: dict[str, Any]) -> None:
-    _insert_ai_run(conn, run)
+    delays = [0.05, 0.1, 0.2, 0.4, 0.8]
+    for index, delay in enumerate([0.0, *delays]):
+        if delay:
+            time.sleep(delay)
+        try:
+            _insert_ai_run(conn, run)
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or index == len(delays):
+                raise
 
 
 def _normalize_route(route: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:

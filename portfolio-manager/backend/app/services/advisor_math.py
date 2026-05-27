@@ -57,6 +57,7 @@ class TrimPlan:
     policyThreshold: float
     priceUsed: float
     priceTimestamp: str
+    executionGuidance: dict[str, Any]
     advisoryOnly: bool = True
     taxWarning: str = ""
 
@@ -298,6 +299,83 @@ def build_trim_plan(
         else:
             tax_warning = "Average cost is available; review realized gain/loss and tax impact before acting."
 
+    guidance_shares = float(shares_whole_ceil if not fractional_shares else shares_fractional_strict)
+    guidance_value = guidance_shares * live_price
+    should_stage = guidance_value >= 10_000 or guidance_shares >= 25 or current_position_value / total_portfolio_value >= 0.25
+    slice_count = 1 if not should_stage else max(2, min(4, ceil(guidance_value / 10_000)))
+    limit_price = round(live_price * 0.995, 2)
+    stop_review_price = round(live_price * 0.98, 2)
+
+    def _split_integer_shares(total: int, count: int) -> list[int]:
+        base = total // count
+        remainder = total % count
+        return [base + (1 if index < remainder else 0) for index in range(count)]
+
+    def _slice_payload(index: int, shares: float) -> dict[str, Any]:
+        return {
+            "sliceNumber": index,
+            "shares": shares,
+            "estimatedValue": round(shares * live_price, 2),
+            "suggestedLimitPrice": limit_price,
+            "timeInForce": "day",
+            "condition": "Only after confirming a current bid/ask and portfolio value in the broker.",
+        }
+
+    fractional_slices: list[dict[str, Any]] = []
+    whole_share_slices: list[dict[str, Any]] = []
+    if fractional_shares:
+        per_slice = guidance_shares / slice_count if slice_count else 0
+        allocated = 0.0
+        for index in range(1, slice_count + 1):
+            shares = round(per_slice, fractional_precision) if index < slice_count else round(max(0.0, guidance_shares - allocated), fractional_precision)
+            allocated += shares
+            fractional_slices.append(_slice_payload(index, shares))
+    for index, shares in enumerate(_split_integer_shares(int(shares_whole_ceil), slice_count), start=1):
+        whole_share_slices.append(_slice_payload(index, shares))
+    slices = fractional_slices if fractional_shares else whole_share_slices
+
+    execution_guidance = {
+        "advisoryOnly": True,
+        "brokerActionLabel": "Create limit sell checklist",
+        "preferredOrderType": "limit_sell",
+        "timeInForce": "day",
+        "session": "regular_market_hours",
+        "recommendedStyle": "staged_limit_sells" if should_stage else "single_limit_sell",
+        "sliceCount": slice_count,
+        "limitPriceReference": round(live_price, 4),
+        "suggestedLimitPrice": limit_price,
+        "stopReviewBelow": stop_review_price,
+        "priceRefreshRequired": True,
+        "primaryQuantityBasis": "fractional" if fractional_shares else "whole_share_compliant",
+        "slices": slices,
+        "wholeShareSlices": whole_share_slices,
+        "fractionalSlices": fractional_slices,
+        "singleOrderAlternative": {
+            "shares": round(guidance_shares, fractional_precision) if fractional_shares else int(shares_whole_ceil),
+            "estimatedValue": round(guidance_value, 2),
+            "suggestedLimitPrice": limit_price,
+            "timeInForce": "day",
+        },
+        "allAtOnceAcceptable": not should_stage,
+        "stagingRationale": (
+            "Staged limit sells are suggested because the trim is large relative to the portfolio or share count."
+            if should_stage
+            else "A single limit sell checklist is reasonable for this trim size after refreshing the quote."
+        ),
+        "instructions": [
+            "Refresh the live quote and bid/ask spread in the broker before using this checklist.",
+            "Use a limit sell checklist rather than a market sell when the reference price is stale or spread visibility is missing.",
+            "If using whole shares, the compliant quantity is the amount that clears the selected policy threshold in one review.",
+            "If the live price moves materially before entry, rerun the advisor instead of reusing this ticket.",
+        ],
+        "invalidation": [
+            "Live/reference price is below the stop-review price.",
+            "Provider freshness is stale or missing after refresh.",
+            "Position quantity, portfolio value, or policy preset changed.",
+            "Tax review changes the acceptable trim amount.",
+        ],
+    }
+
     return TrimPlan(
         mode=mode,
         complianceMode=compliance_mode,
@@ -318,6 +396,7 @@ def build_trim_plan(
         policyThreshold=round(threshold, 4),
         priceUsed=round(live_price, 4),
         priceTimestamp=price_timestamp,
+        executionGuidance=execution_guidance,
         advisoryOnly=True,
         taxWarning=tax_warning,
     ).to_dict()
@@ -362,4 +441,3 @@ def build_add_plan(
         blockers=blockers,
         advisoryOnly=True,
     ).to_dict()
-

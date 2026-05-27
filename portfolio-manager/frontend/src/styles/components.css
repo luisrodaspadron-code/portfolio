@@ -1090,6 +1090,32 @@ a svg {
   gap: var(--space-3);
 }
 
+.trim-execution-guidance {
+  padding: var(--space-3);
+  border: 1px solid rgba(101, 255, 216, 0.12);
+  border-radius: 12px;
+  background: rgba(101, 255, 216, 0.035);
+}
+
+.advisory-ticket-guidance-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.advisory-ticket-guidance-list li + li {
+  margin-top: 4px;
+}
+
+.advisory-ticket-guidance-note {
+  margin: var(--space-2) 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .advisory-ticket.compact .advisory-ticket-title strong {
   font-size: 1.38rem;
 }

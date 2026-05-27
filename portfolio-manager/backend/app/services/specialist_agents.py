@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
+from app.database import get_conn
 from app.services.ai_service import (
     _call_openai_response,
     _effective_openai_api_key,
@@ -102,13 +103,13 @@ def _specialist_input(name: str, packet: dict[str, Any], review_packet: dict[str
 
 
 def _run_one_specialist(
-    conn,
     name: str,
     packet: dict[str, Any],
     review_packet: dict[str, Any],
     api_key: str,
-) -> tuple[str, dict[str, Any], dict[str, int]]:
-    ai_settings = ai_runtime_settings(conn, "specialist")
+) -> tuple[str, dict[str, Any], dict[str, int], dict[str, Any]]:
+    with get_conn() as thread_conn:
+        ai_settings = ai_runtime_settings(thread_conn, "specialist")
     model = ai_settings["model"]
     started_at = _now()
     payload = {
@@ -125,33 +126,32 @@ def _run_one_specialist(
         if not isinstance(parsed, dict):
             raise ValueError(f"{name} specialist response was not a JSON object.")
         tokens = _usage(response)
-        insert_ai_run(
-            conn,
-            ai_run_record(
-                provider="openai",
-                model=model,
-                purpose=f"specialist_{name}",
-                status="success",
-                started_at=started_at,
-                tokens=tokens,
-                response_id=str(response.get("id") or ""),
-            ),
+        run_record = ai_run_record(
+            provider="openai",
+            model=model,
+            purpose=f"specialist_{name}",
+            status="success",
+            started_at=started_at,
+            tokens=tokens,
+            response_id=str(response.get("id") or ""),
         )
-        return name, parsed, tokens
+        return name, parsed, tokens, run_record
     except Exception as exc:
         status = ai_failure_state(exc)
-        insert_ai_run(
-            conn,
-            ai_run_record(
-                provider="openai",
-                model=model,
-                purpose=f"specialist_{name}",
-                status=status,
-                started_at=started_at,
-                error=str(exc),
-            ),
+        run_record = ai_run_record(
+            provider="openai",
+            model=model,
+            purpose=f"specialist_{name}",
+            status=status,
+            started_at=started_at,
+            error=str(exc),
         )
-        return name, _fallback(name, user_safe_ai_error(exc)), {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        return (
+            name,
+            _fallback(name, user_safe_ai_error(exc)),
+            {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            run_record,
+        )
 
 
 def run_specialist_agents(
@@ -171,16 +171,23 @@ def run_specialist_agents(
     summaries: dict[str, Any] = {}
     total_tokens = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     warnings: list[str] = []
+    run_records: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = {
-            pool.submit(_run_one_specialist, conn, name, packet, review_packet, api_key): name
+            pool.submit(_run_one_specialist, name, packet, review_packet, api_key): name
             for name in SPECIALIST_SCHEMAS
         }
         for future in as_completed(futures):
-            name, parsed, tokens = future.result()
+            name, parsed, tokens, run_record = future.result()
             summaries[name] = parsed
+            run_records.append(run_record)
             for key in total_tokens:
                 total_tokens[key] += int(tokens.get(key) or 0)
             if "skipped" in str(parsed.get("summary", "")).lower():
                 warnings.append(f"{name} specialist degraded.")
+    for run_record in run_records:
+        try:
+            insert_ai_run(conn, run_record)
+        except Exception:
+            warnings.append("Specialist AI audit logging was skipped because the local database was busy.")
     return summaries, total_tokens, warnings

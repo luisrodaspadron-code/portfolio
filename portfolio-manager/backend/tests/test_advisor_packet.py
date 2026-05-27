@@ -87,8 +87,11 @@ def test_v9_mission_control_contract_fields(tmp_path, monkeypatch):
         "sharesToSellWholeReduceOnly",
         "estimatedPostWeightCompliant",
         "policyThreshold",
+        "executionGuidance",
     ):
         assert required_key in trim, f"missing {required_key} in trimPlan"
+    assert trim["executionGuidance"]["preferredOrderType"] == "limit_sell"
+    assert trim["executionGuidance"]["priceRefreshRequired"] is True
     # Source Matrix powers Connections > Source Matrix panel
     matrix = packet["sourceMatrix"]["matrix"]
     assert isinstance(matrix, dict)
@@ -100,6 +103,9 @@ def test_v9_mission_control_contract_fields(tmp_path, monkeypatch):
     assert "telemetry" in matrix
     assert matrix["portfolioState"]["usedInRun"] is True
     assert 0 <= matrix["prices"]["confidence"] <= 1
+    assert packet["workflowAudit"]["gapCount"] >= 0
+    assert "requiredBeforeBroker" in packet["workflowAudit"]
+    assert packet["workflowAudit"]["firstActionReadyForBrokerReview"] is True
     # Compare drawer reads policy + blocked actions from the receipt
     assert receipt["selectedPolicy"]
     assert receipt["packetHash"]

@@ -102,6 +102,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
     const topTrimPlan = topAction?.detail_payload?.trimPlan;
     const canonicalTrimPlan = canonicalFirst?.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"] | undefined;
     const displayTrimPlan = canonicalTrimPlan ?? topTrimPlan;
+    const trimGuidance = displayTrimPlan?.executionGuidance;
     return (
       <section className="actions-view actions-redesign screen-enter">
         <SignalPanel className="actions-hero-v2">
@@ -119,6 +120,11 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                   ? `${displayTrimPlan.sharesToSellExact.toFixed(2)} exact · ${displayTrimPlan.sharesToSellWholeCompliant ?? displayTrimPlan.sharesToSellWhole} whole shares`
                   : topAction.plain_action}
               </p>
+              {trimGuidance && (
+                <p className="action-broker-guardrail">
+                  {titleCase(trimGuidance.recommendedStyle.replace(/_/g, " "))} · {titleCase(trimGuidance.preferredOrderType.replace(/_/g, " "))} · limit floor {money(trimGuidance.suggestedLimitPrice)} · rerun below {money(trimGuidance.stopReviewBelow)}
+                </p>
+              )}
             </div>
           )}
         </SignalPanel>
@@ -337,6 +343,59 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                     {selectedDecision.detail_payload.trimPlan.priceTimestamp ? ` · ${selectedDecision.detail_payload.trimPlan.priceTimestamp}` : ""}
                   </p>
                   {selectedDecision.detail_payload.trimPlan.taxWarning && <p>{selectedDecision.detail_payload.trimPlan.taxWarning}</p>}
+                  {selectedDecision.detail_payload.trimPlan.executionGuidance && (
+                    <div className="trim-execution-guidance-inline">
+                      <h4>Broker checklist</h4>
+                      <div className="detail-score-row">
+                        <div>
+                          <span>Order type</span>
+                          <strong>{titleCase(selectedDecision.detail_payload.trimPlan.executionGuidance.preferredOrderType.replace(/_/g, " "))}</strong>
+                        </div>
+                        <div>
+                          <span>Suggested limit</span>
+                          <strong>{money(selectedDecision.detail_payload.trimPlan.executionGuidance.suggestedLimitPrice)}</strong>
+                        </div>
+                        <div>
+                          <span>Stop / rerun below</span>
+                          <strong>{money(selectedDecision.detail_payload.trimPlan.executionGuidance.stopReviewBelow)}</strong>
+                        </div>
+                        <div>
+                          <span>Style</span>
+                          <strong>{titleCase(selectedDecision.detail_payload.trimPlan.executionGuidance.recommendedStyle.replace(/_/g, " "))}</strong>
+                          <small>
+                            {selectedDecision.detail_payload.trimPlan.executionGuidance.slices
+                              .map((slice) => `${slice.shares} sh`)
+                              .join(" · ")}
+                          </small>
+                        </div>
+                        {selectedDecision.detail_payload.trimPlan.executionGuidance.wholeShareSlices?.length ? (
+                          <div>
+                            <span>Whole-share fallback</span>
+                            <strong>
+                              {selectedDecision.detail_payload.trimPlan.executionGuidance.wholeShareSlices
+                                .map((slice) => `${slice.shares} sh`)
+                                .join(" · ")}
+                            </strong>
+                          </div>
+                        ) : null}
+                        {selectedDecision.detail_payload.trimPlan.executionGuidance.singleOrderAlternative ? (
+                          <div>
+                            <span>All at once</span>
+                            <strong>
+                              {selectedDecision.detail_payload.trimPlan.executionGuidance.allAtOnceAcceptable ? "Acceptable" : "Use only after review"}
+                            </strong>
+                            <small>
+                              {selectedDecision.detail_payload.trimPlan.executionGuidance.singleOrderAlternative.shares} sh at{" "}
+                              {money(selectedDecision.detail_payload.trimPlan.executionGuidance.singleOrderAlternative.suggestedLimitPrice)}
+                            </small>
+                          </div>
+                        ) : null}
+                      </div>
+                      {selectedDecision.detail_payload.trimPlan.executionGuidance.stagingRationale && (
+                        <p>{selectedDecision.detail_payload.trimPlan.executionGuidance.stagingRationale}</p>
+                      )}
+                    </div>
+                  )}
                 </section>
               )}
               {selectedDecision.detail_payload?.addPlan && (

@@ -413,6 +413,13 @@ SAMPLE_PORTFOLIO_CSV = (
 )
 
 
+def test_synthetic_price_sources_are_not_labeled_fresh():
+    from app.services.decision_service import _candidate_source
+
+    assert _candidate_source({"price_source": "synthetic_test", "source_data_age_days": 0}) == "sample-only"
+    assert _candidate_source({"price_source": "alpaca", "source_data_age_days": 0}) == "fresh"
+
+
 def test_sample_portfolio_full_deterministic_expectations(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "portfolio.sqlite"))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -447,8 +454,11 @@ def test_sample_portfolio_full_deterministic_expectations(tmp_path, monkeypatch)
         "estimatedPostWeightReduceOnly",
         "complianceMode",
         "wouldRemainAboveThresholdIfRoundedDown",
+        "executionGuidance",
     ):
         assert field in trim_plan, field
+    assert trim_plan["executionGuidance"]["preferredOrderType"] == "limit_sell"
+    assert trim_plan["executionGuidance"]["priceRefreshRequired"] is True
 
     assert holdings["NEE"]["reason_code"] in {"SINGLE_NAME_URGENT_REVIEW", "SINGLE_NAME_HARD_BUY_BLOCK", "SINGLE_NAME_CAP_BREACH"}
     assert holdings["RTX"]["reason_code"] in {"SINGLE_NAME_URGENT_REVIEW", "SINGLE_NAME_HARD_BUY_BLOCK", "SINGLE_NAME_CAP_BREACH"}

@@ -20,6 +20,57 @@ def test_strict_compliance_uses_ceil_for_whole_shares():
     assert plan["sharesToSellExact"] == pytest.approx(213.0, abs=1e-3)
     assert plan["sharesToSellWholeCompliant"] >= plan["sharesToSellWholeReduceOnly"]
     assert plan["sharesToSell"] == plan["sharesToSellWholeCompliant"]
+    assert plan["executionGuidance"]["preferredOrderType"] == "limit_sell"
+    assert plan["executionGuidance"]["suggestedLimitPrice"] < plan["priceUsed"]
+    assert plan["executionGuidance"]["advisoryOnly"] is True
+
+
+def test_large_trim_plan_includes_staged_limit_checklist():
+    from app.services.advisor_math import build_trim_plan
+
+    plan = build_trim_plan(
+        total_portfolio_value=48_853,
+        current_position_value=26_261,
+        target_weight=0.08,
+        live_price=610.72,
+        price_timestamp="2026-05-26T20:00:00Z",
+        quantity=43,
+        fractional_shares=False,
+        compliance_mode="strict_below_threshold",
+        policy_threshold=0.08,
+    )
+
+    guidance = plan["executionGuidance"]
+    assert guidance["recommendedStyle"] == "staged_limit_sells"
+    assert guidance["sliceCount"] >= 2
+    assert sum(slice_["shares"] for slice_ in guidance["slices"]) == plan["sharesToSellWholeCompliant"]
+    assert guidance["primaryQuantityBasis"] == "whole_share_compliant"
+    assert guidance["allAtOnceAcceptable"] is False
+    assert guidance["singleOrderAlternative"]["shares"] == plan["sharesToSellWholeCompliant"]
+    assert guidance["stopReviewBelow"] < guidance["suggestedLimitPrice"] < guidance["limitPriceReference"]
+    assert any("Refresh the live quote" in item for item in guidance["instructions"])
+
+
+def test_fractional_trim_guidance_still_exposes_whole_share_fallback():
+    from app.services.advisor_math import build_trim_plan
+
+    plan = build_trim_plan(
+        total_portfolio_value=48_853,
+        current_position_value=26_261,
+        target_weight=0.08,
+        live_price=610.72,
+        price_timestamp="2026-05-26T20:00:00Z",
+        quantity=43,
+        fractional_shares=True,
+        compliance_mode="strict_below_threshold",
+        policy_threshold=0.08,
+    )
+
+    guidance = plan["executionGuidance"]
+    assert guidance["primaryQuantityBasis"] == "fractional"
+    assert sum(slice_["shares"] for slice_ in guidance["wholeShareSlices"]) == plan["sharesToSellWholeCompliant"]
+    assert guidance["singleOrderAlternative"]["shares"] == plan["sharesToSellFractionalCompliant"]
+    assert "Staged limit sells" in guidance["stagingRationale"]
 
 
 def test_strict_compliance_ceiling_strictly_below_threshold():

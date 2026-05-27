@@ -1215,6 +1215,20 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.trim-execution-guidance-inline {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.trim-execution-guidance-inline h4 {
+  margin: 0 0 var(--space-2);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
 .insight-action-board {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1425,6 +1439,15 @@
 .action-weight-card p {
   margin: 0;
   color: var(--muted);
+}
+
+.action-weight-card .action-broker-guardrail {
+  max-width: 32ch;
+  padding-top: var(--space-2);
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .risk-priority-grid,

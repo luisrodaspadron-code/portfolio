@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -162,16 +163,19 @@ def _update_run(run_id: int, status: str, started_at: str, summary: dict[str, An
 def _begin_step(run_id: int | None, step: str, message: str = "") -> int | None:
     if run_id is None:
         return None
-    with get_conn() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO automation_run_steps
-            (run_id, step, status, records, started_at, message)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (run_id, step, "running", 0, _now(), message),
-        )
-        step_id = int(cursor.lastrowid)
+    try:
+        with get_conn() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO automation_run_steps
+                (run_id, step, status, records, started_at, message)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, step, "running", 0, _now(), message),
+            )
+            step_id = int(cursor.lastrowid)
+    except (sqlite3.OperationalError, sqlite3.IntegrityError):
+        return None
     run_events.publish(
         run_id,
         type="step",
@@ -187,23 +191,26 @@ def _begin_step(run_id: int | None, step: str, message: str = "") -> int | None:
 def _finish_step(step_id: int | None, receipt: dict[str, Any]) -> None:
     if step_id is None:
         return
-    with get_conn() as conn:
-        conn.execute(
-            """
-            UPDATE automation_run_steps
-            SET status = ?, records = ?, finished_at = ?, message = ?, technical_detail = ?
-            WHERE id = ?
-            """,
-            (
-                receipt["status"],
-                int(receipt.get("records") or 0),
-                receipt["finished_at"],
-                receipt.get("message", ""),
-                receipt.get("technical_detail", ""),
-                step_id,
-            ),
-        )
-        row = conn.execute("SELECT run_id FROM automation_run_steps WHERE id = ?", (step_id,)).fetchone()
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE automation_run_steps
+                SET status = ?, records = ?, finished_at = ?, message = ?, technical_detail = ?
+                WHERE id = ?
+                """,
+                (
+                    receipt["status"],
+                    int(receipt.get("records") or 0),
+                    receipt["finished_at"],
+                    receipt.get("message", ""),
+                    receipt.get("technical_detail", ""),
+                    step_id,
+                ),
+            )
+            row = conn.execute("SELECT run_id FROM automation_run_steps WHERE id = ?", (step_id,)).fetchone()
+    except (sqlite3.OperationalError, sqlite3.IntegrityError):
+        return
     run_id = int(row["run_id"]) if row else None
     if run_id is not None:
         run_events.publish(

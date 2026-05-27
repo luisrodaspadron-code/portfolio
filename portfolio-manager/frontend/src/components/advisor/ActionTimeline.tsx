@@ -33,10 +33,13 @@ function buildTimeline(dashboard: Dashboard): TimelineStep[] {
   const steps: TimelineStep[] = [];
 
   if (first?.action === "TRIM") {
+    const guidance = trimPlan?.executionGuidance;
     steps.push({
       id: "repair",
       title: "Repair concentration",
-      detail: `Trim toward ${pct(first.targetWeight ?? 0)} policy threshold.`,
+      detail: guidance
+        ? `${titleCase(guidance.recommendedStyle.replace(/_/g, " "))}: ${titleCase(guidance.preferredOrderType.replace(/_/g, " "))} around ${money(guidance.suggestedLimitPrice)}; rerun below ${money(guidance.stopReviewBelow)}.`
+        : `Trim toward ${pct(first.targetWeight ?? 0)} policy threshold.`,
       status: "required",
       math: trimPlan
         ? `${trimPlan.sharesToSellWholeCompliant ?? trimPlan.sharesToSellWhole} shares · ${money(trimPlan.estimatedSellValue)}`
