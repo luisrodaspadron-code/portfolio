@@ -25,10 +25,6 @@
 }
 
 @media (max-width: 1080px) {
-  .display-mode-toggle {
-    display: none;
-  }
-
   .policy-selector-chip span:first-of-type {
     display: none;
   }
@@ -60,6 +56,7 @@
   .top-telemetry {
     border-radius: var(--radius);
     grid-template-columns: 1fr auto;
+    flex-wrap: wrap;
   }
 
   .telemetry-items {
@@ -166,7 +163,7 @@
 
   .telemetry-items {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 2px;
     order: 3;
     min-width: 0;
@@ -199,7 +196,13 @@
   }
 
   .telemetry-search {
-    width: 100%;
+    flex: 1 1 calc(50% - 4px);
+    width: auto;
+  }
+
+  .top-telemetry > .policy-selector-chip {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
   }
 
   .top-telemetry > .command-button {
@@ -454,6 +457,63 @@
     width: 100%;
   }
 
+  .mission-control,
+  .mission-control-bar,
+  .mission-control-grid,
+  .mission-first-action,
+  .mission-decision-receipt,
+  .advisory-ticket,
+  .portfolio-impact-preview,
+  .what-changed-panel,
+  .now-run-disclosure,
+  .now-audit-drawer {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .mission-control-bar {
+    overflow: hidden;
+  }
+
+  .mission-control-eyebrow {
+    gap: 6px;
+  }
+
+  .mission-control-eyebrow strong {
+    letter-spacing: 0.22em;
+  }
+
+  .mission-control-command h1 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    line-height: 1.12;
+  }
+
+  .mission-control-pills {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .mission-pill {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .policy-threshold-track {
+    height: 36px;
+  }
+
+  .policy-threshold-band {
+    padding: 2px;
+    font-size: 0;
+  }
+
+  .policy-threshold-band em,
+  .policy-threshold-band small {
+    display: none;
+  }
+
   .risk-score-stack {
     min-height: 74px;
     grid-template-columns: auto auto minmax(0, 1fr);
@@ -589,7 +649,7 @@
   }
 
   .telemetry-items {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     overflow: hidden;
     padding-bottom: 0;
   }

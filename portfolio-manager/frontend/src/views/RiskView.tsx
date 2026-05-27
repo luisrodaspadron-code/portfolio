@@ -1,10 +1,10 @@
-import { Database, Layers3, MessageCircle, ShieldAlert, TrendingDown } from "lucide-react";
+import { Database, Layers3, ShieldAlert, TrendingDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { Dashboard } from "../types";
 import { money, pct, titleCase } from "../lib/format";
 import { riskRadarMetrics } from "../lib/viewModels";
 import { RiskRadar } from "../components/visuals/RiskRadar";
-import { Badge, CommandButton, EmptyState, SignalPanel } from "../components/ui/Primitives";
+import { Badge, EmptyState, SignalPanel } from "../components/ui/Primitives";
 import { SelectedPolicyCard, SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
 import { RiskBlockerCard, deriveRiskBlockers } from "../components/risk/RiskBlockerCard";
 
@@ -45,7 +45,7 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
   const firstTrimEstimate = firstAction?.action === "TRIM" ? trimPlanValue(firstAction, "estimatedSellValue") : 0;
   const primaryFix =
     firstAction?.action === "TRIM"
-      ? `Create an advisory trim plan for ${firstAction.symbol}: estimated trim ${money(firstTrimEstimate)} toward the ${pct(firstAction.targetWeight)} cap. Advisory-only. No order has been placed.`
+      ? `Create a trim plan for ${firstAction.symbol}: estimated trim ${money(firstTrimEstimate)} toward the ${pct(firstAction.targetWeight)} cap.`
       : topPosition && topPosition.weight > maxSingleStock
         ? `Trim or avoid adding to ${topPosition.symbol} until it moves closer to the ${pct(maxSingleStock)} single-stock guardrail.`
       : topRisk?.what_to_do ?? (hasHoldings ? "No urgent hard-rule fix is required at this snapshot." : "Import holdings to activate real risk analysis.");
@@ -100,11 +100,6 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
               </p>
             </div>
           )}
-          <div className="inline-actions">
-            <CommandButton icon={MessageCircle} variant="primary" onClick={() => onAsk("Give me a plain-English risk summary and the one thing I should change first.")}>
-              Ask Signal about risk
-            </CommandButton>
-          </div>
         </div>
         <div className="risk-score-stack">
           <span>Issues</span>
@@ -134,32 +129,36 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         </div>
         <RiskRadar metrics={radarMetrics} />
         <p className="visual-explainer">
-          Six axes: concentration · sector pressure · data quality · liquidity · drawdown · factor crowding.
-          Each axis is driven by deterministic gates the engine already computed — the LLM only narrates.
+          Six factors condensed from the latest risk packet: concentration, sector pressure, data, liquidity, drawdown, and crowding.
         </p>
       </SignalPanel>
 
       {selectedPolicy && (
-        <SelectedPolicyCard
-          policy={selectedPolicy}
-          footnote="Policy is the source of truth for caps, blocks, and remediation. The LLM advises in narrative; the deterministic engine enforces these bands."
-        />
-      )}
-
-      {selectedPolicy && topPosition && (
-        <SignalPanel className="risk-radar-panel">
-          <div className="panel-label-row">
-            <span>{topPosition.symbol} versus single-stock policy</span>
-            <Badge tone={topPosition.weight >= selectedPolicy.singleStock.hardBuyBlock ? "fail" : topPosition.weight >= selectedPolicy.singleStock.warning ? "watch" : "live"}>
-              {pct(topPosition.weight)}
-            </Badge>
-          </div>
-          <SingleStockLadder
-            policy={selectedPolicy.singleStock}
-            currentWeight={topPosition.weight}
-            symbol={topPosition.symbol}
+        <details className="risk-policy-disclosure">
+          <summary>
+            <span>Policy thresholds</span>
+            <Badge tone="neutral">{selectedPolicy.name}</Badge>
+          </summary>
+          <SelectedPolicyCard
+            policy={selectedPolicy}
+            footnote="Policy thresholds drive the risk states shown on this page."
           />
-        </SignalPanel>
+          {topPosition && (
+            <SignalPanel className="risk-radar-panel">
+              <div className="panel-label-row">
+                <span>{topPosition.symbol} versus single-stock policy</span>
+                <Badge tone={topPosition.weight >= selectedPolicy.singleStock.hardBuyBlock ? "fail" : topPosition.weight >= selectedPolicy.singleStock.warning ? "watch" : "live"}>
+                  {pct(topPosition.weight)}
+                </Badge>
+              </div>
+              <SingleStockLadder
+                policy={selectedPolicy.singleStock}
+                currentWeight={topPosition.weight}
+                symbol={topPosition.symbol}
+              />
+            </SignalPanel>
+          )}
+        </details>
       )}
 
       <section className="risk-workbench">

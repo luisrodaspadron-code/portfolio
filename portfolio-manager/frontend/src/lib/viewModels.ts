@@ -1,7 +1,7 @@
 import type { ActionItem, ConnectionProvider, Dashboard, Opportunity, Position, Recommendation } from "../types";
 import { modelRouteLabel, money, pct, textValue, titleCase } from "./format";
 
-export type AppTab = "now" | "portfolio" | "risks" | "actions" | "research" | "connections";
+export type AppTab = "now" | "portfolio" | "risks" | "actions" | "connections";
 
 export type TelemetryItem = {
   label: string;
@@ -94,9 +94,6 @@ export function getSetupStatus(dashboard: Dashboard) {
 export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
   const setup = getSetupStatus(dashboard);
   const riskBreaches = dashboard.decision_packet_status.risk_breaches;
-  const quantChecked = dashboard.quant_diagnostics.coverage.scored_instruments > 0 && dashboard.quant_diagnostics.recommendations.total > 0;
-  const quantError = dashboard.quant_diagnostics.status === "error" || dashboard.quant_diagnostics.status === "fail";
-  const quantPartial = !quantChecked && !quantError && dashboard.quant_diagnostics.status !== "healthy";
   const portfolioValue = dashboard.real_portfolio?.total_value ?? 0;
   const latestProvider = dashboard.data_freshness.latest_provider_refresh;
   const latestPriceProviderFailed = latestProvider?.status === "failed" && latestProvider.provider === dashboard.data_freshness.preferred_price_source;
@@ -149,7 +146,7 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
       actionLabel: "Open portfolio",
     },
     {
-      label: "Model",
+      label: "AI",
       value: dashboard.advisor_packet?.decisionReceipt?.modelRoute
         ? modelRouteLabel(dashboard.advisor_packet.decisionReceipt.modelRoute)
         : aiValue,
@@ -178,13 +175,6 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
           : "No hard breach in current holdings."
         : "Risk checks need imported positions.",
       actionLabel: "Open risk brief",
-    },
-    {
-      label: "Quant",
-      value: quantError ? "Error" : quantChecked ? "Checked" : quantPartial ? "Partial" : "Pending",
-      tone: quantError ? "danger" : quantChecked ? "good" : quantPartial ? "attention" : "neutral",
-      detail: `${dashboard.quant_diagnostics.coverage.scored_instruments} scored · ${dashboard.universe_status.included_assets || dashboard.market_scope.enabled_instruments} universe assets`,
-      actionLabel: "View receipt",
     }
   ];
 }
@@ -441,17 +431,17 @@ export function getConnectionGroups(providers: ConnectionProvider[]) {
   return [
     {
       label: "Required",
-      description: "Needed for real AI review and the clearest setup path.",
+      description: "Core AI review.",
       providers: providers.filter((provider) => provider.provider === "openai")
     },
     {
       label: "Recommended",
-      description: "Best sources for prices, macro context, and fundamentals.",
+      description: "Prices, macro, and fundamentals.",
       providers: providers.filter((provider) => ["alpaca", "fred", "sec_edgar"].includes(provider.provider))
     },
     {
       label: "Optional",
-      description: "Add if you want broader paid coverage.",
+      description: "Broader paid coverage.",
       providers: providers.filter((provider) => provider.provider === "alpha_vantage")
     }
   ].filter((group) => group.providers.length > 0);

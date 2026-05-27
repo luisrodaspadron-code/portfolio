@@ -10,7 +10,6 @@ import {
   FileText,
   GitCompare,
   Receipt,
-  ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { AdvisorRunEvent, AdvisorRunStatus, Dashboard } from "../../types";
@@ -30,7 +29,7 @@ function eventTone(status: string) {
 function iconFor(step: string, phase?: string) {
   const key = `${step} ${phase ?? ""}`;
   if (/price|data|provider/i.test(key)) return Database;
-  if (/risk|gate|quant/i.test(key)) return ShieldCheck;
+  if (/risk|gate|quant/i.test(key)) return AlertTriangle;
   if (/ai|llm|decision|receipt|specialist/i.test(key)) return BrainCircuit;
   if (/backtest|factor|universe|candidate/i.test(key)) return Activity;
   return Clock3;
@@ -104,7 +103,6 @@ export function RunConsole({
   run,
   busy,
   onRun,
-  onDeepRun,
   onCompare,
   onViewPacket,
   onViewReceipt,
@@ -113,7 +111,6 @@ export function RunConsole({
   run: AdvisorRunStatus | null;
   busy: boolean;
   onRun: () => void;
-  onDeepRun?: () => void;
   onCompare?: () => void;
   onViewPacket?: () => void;
   onViewReceipt?: () => void;
@@ -210,11 +207,6 @@ export function RunConsole({
           <CommandButton icon={BrainCircuit} variant="primary" disabled={busy} onClick={onRun}>
             {busy ? "Running" : "Run advisor"}
           </CommandButton>
-          {onDeepRun && (
-            <CommandButton icon={ShieldCheck} variant="secondary" disabled={busy} onClick={onDeepRun}>
-              Deep competition review
-            </CommandButton>
-          )}
           {onCompare && (
             <CommandButton icon={GitCompare} variant="secondary" onClick={onCompare}>
               Compare previous

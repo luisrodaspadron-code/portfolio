@@ -49,7 +49,7 @@ export function AdvisorTraceCards({
         </div>
         <span>Quant tools used</span>
         <strong>{checkedTools} checks complete</strong>
-        <p>Data refresh, feature generation, risk gates, sizing, strategy sleeves, macro regime, and memos feed the advisor.</p>
+        <p>Data refresh, feature generation, risk gates, sizing, strategy sleeves, and macro regime feed the advisor.</p>
         <div className="trace-tool-strip">
           {trace.quant_tools.slice(0, 5).map((tool) => (
             <i key={tool.name} className={tool.status}>

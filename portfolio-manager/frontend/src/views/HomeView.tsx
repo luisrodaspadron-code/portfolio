@@ -2,13 +2,11 @@ import { motion } from "motion/react";
 import { useEffect } from "react";
 import { AlertTriangle, BrainCircuit, Database, Import, ListChecks, MessageCircle, ShieldCheck } from "lucide-react";
 import type { AdvisorRunStatus, Dashboard } from "../types";
-import { modelRouteLabel, money, number, pct, shortDateTime, signedMoney, signedPct, titleCase } from "../lib/format";
+import { modelRouteLabel, money, number, pct, shortDateTime, signedPct, titleCase } from "../lib/format";
 import { primaryDecision, type AppTab } from "../lib/viewModels";
-import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
 import { PortfolioImpactPreview } from "../components/visuals/PortfolioImpactPreview";
 import { DecisionMap } from "../components/visuals/DecisionMap";
 import { DecisionReceiptCard, trimMathFromPacket } from "../components/advisor/DecisionReceiptCard";
-import type { DisplayMode } from "../lib/displayModes";
 import { RunConsole } from "../components/advisor/RunConsole";
 import { AdvisoryTicket } from "../components/advisor/AdvisoryTicket";
 import { Badge, CommandButton, SignalPanel, StatusDot } from "../components/ui/Primitives";
@@ -42,7 +40,7 @@ function changedItems(dashboard: Dashboard) {
   return [
     {
       label: "Portfolio move",
-      value: trend.points.length >= 2 ? `${signedMoney(trend.day_change)} ${trend.latest_change_label}` : "Trend building",
+      value: trend.points.length >= 2 ? `${signedPct(trend.day_change_pct)} ${trend.latest_change_label}` : "Trend building",
       body: trend.points.length >= 2 ? `${signedPct(trend.day_change_pct)} day · ${signedPct(trend.week_change_pct)} week` : trend.source_note,
       tone: trend.points.length >= 2 ? (trend.day_change >= 0 ? "live" : "fail") : "watch"
     },
@@ -74,8 +72,6 @@ export function HomeView({
   onNavigate,
   onAsk,
   onRunAdvisor,
-  onDeepReview,
-  displayMode = "command",
   onCompareOpenChange,
 }: {
   dashboard: Dashboard;
@@ -84,8 +80,6 @@ export function HomeView({
   onNavigate: (tab: AppTab) => void;
   onAsk: (question?: string) => void;
   onRunAdvisor: () => void;
-  onDeepReview?: () => void;
-  displayMode?: DisplayMode;
   onCompareOpenChange?: (open: boolean) => void;
 }) {
   const decision = primaryDecision(dashboard);
@@ -106,7 +100,6 @@ export function HomeView({
   const sizing = receiptMath(dashboard);
   const trend = dashboard.portfolio_trend;
   const topRisk = dashboard.advisor_trace.top_risks[0];
-  const latestValue = trend.points.length ? trend.points[trend.points.length - 1].value : real?.total_value ?? 0;
   const hasTrendHistory = trend.points.length >= 2;
   const lastAiRun = advisorDecision?.created_at ?? dashboard.ai_status.last_run?.finished_at;
   const nextRun = dashboard.scheduler.next_run_at;
@@ -125,14 +118,11 @@ export function HomeView({
     ?? canonicalHeadline
     ?? (firstAction
       ? `${titleCase(firstAction.action)} ${firstAction.symbol} before increasing single-stock exposure.`
-      : "Run the advisor to generate today's command.");
+      : "Run the advisor to generate the first priority.");
   const dataLabel = titleCase(dashboard.data_freshness.provider_mode);
-  const focusMode = displayMode === "focus";
-  const researchMode = displayMode === "research" || displayMode === "presentation";
-  const presentationMode = displayMode === "presentation";
 
   return (
-    <section className={`now-view now-decision-hub screen-enter mission-control ${presentationMode ? "presentation-mode" : ""}`}>
+    <section className="now-view now-decision-hub screen-enter mission-control">
       <header className="mission-control-bar" data-testid="mission-control-header">
         <div className="mission-control-eyebrow">
           <strong>SIGNAL PRIME</strong>
@@ -143,7 +133,7 @@ export function HomeView({
           <Badge tone="watch">Advisory-only</Badge>
         </div>
         <div className="mission-control-command">
-          <span>Today's command</span>
+          <span>First priority</span>
           <h1>{commandCopy}</h1>
         </div>
         <div className="mission-control-pills" role="list">
@@ -177,6 +167,7 @@ export function HomeView({
               action={firstAction}
               policy={selectedPolicy}
               onAsk={onAsk}
+              compact
             />
           ) : (
             <SignalPanel className="mission-first-action-empty">
@@ -264,7 +255,7 @@ export function HomeView({
         </article>
       </section>
 
-      {firstAction && real && !focusMode && (
+      {firstAction && real && (
         <PortfolioImpactPreview
           portfolio={real}
           action={firstAction}
@@ -276,17 +267,6 @@ export function HomeView({
         />
       )}
 
-      {!focusMode && (
-        <SignalPanel className="decision-map-panel">
-          <div className="panel-label-row">
-            <span>Decision map</span>
-            <Badge tone="neutral">Deterministic flow</Badge>
-          </div>
-          <DecisionMap dashboard={dashboard} />
-        </SignalPanel>
-      )}
-
-      {!focusMode && (
       <SignalPanel className="what-changed-panel">
         <div className="panel-label-row">
           <span>What changed since last review</span>
@@ -302,42 +282,35 @@ export function HomeView({
           ))}
         </div>
       </SignalPanel>
-      )}
 
-      {!focusMode && (
-      <section className="operating-grid lean">
-        <SignalPanel className="trend-panel">
-          <div className="panel-label-row">
-            <span>Portfolio trend</span>
-            <Badge tone={hasTrendHistory ? (trend.day_change >= 0 ? "live" : "fail") : "watch"}>{titleCase(trend.granularity)}</Badge>
-          </div>
-          <div className="trend-headline">
-            <strong className={hasTrendHistory ? (trend.day_change >= 0 ? "positive" : "negative") : undefined}>
-              {hasTrendHistory ? signedMoney(trend.day_change) : money(latestValue)}
-            </strong>
-            <span>{hasTrendHistory ? `${signedPct(trend.week_change_pct)} week · ${signedPct(trend.month_change_pct)} month` : trend.source_note}</span>
-          </div>
-          <PortfolioTrendChart trend={trend} />
-          <p className="panel-note">{trend.source_note}</p>
-        </SignalPanel>
-
+      <details className="now-run-disclosure" open={busy || activeRun?.status === "running"}>
+        <summary>
+          <span>Advisor run console</span>
+          <Badge tone={busy || activeRun?.status === "running" ? "live" : activeRun?.status === "failed" ? "fail" : "neutral"}>
+            {busy || activeRun?.status === "running" ? "Running" : activeRun ? titleCase(activeRun.status) : "Optional"}
+          </Badge>
+        </summary>
         <RunConsole
           dashboard={dashboard}
           run={activeRun}
           busy={busy}
           onRun={onRunAdvisor}
-          onDeepRun={onDeepReview}
           onCompare={() => setCompareOpen(true)}
         />
-      </section>
-      )}
+      </details>
 
-      {!focusMode && (
-      <details className="now-audit-drawer" open={researchMode ? presentationMode : undefined}>
+      <details className="now-audit-drawer">
         <summary>
-          <span>Audit the packet</span>
+          <span>Technical details</span>
           <Badge tone="neutral">{dashboard.decision_packet_status.tool_count} tools</Badge>
         </summary>
+        <SignalPanel className="decision-map-panel">
+          <div className="panel-label-row">
+            <span>Decision map</span>
+            <Badge tone="neutral">Deterministic flow</Badge>
+          </div>
+          <DecisionMap dashboard={dashboard} />
+        </SignalPanel>
         <section className="now-trace-grid">
           <SignalPanel className="trace-card compact">
             <div className="trace-icon-row">
@@ -365,7 +338,6 @@ export function HomeView({
           </SignalPanel>
         </section>
       </details>
-      )}
 
       {firstAction && (
         <div className="mission-mobile-bar" data-testid="mission-mobile-bar" aria-label="Today's first advisory action">

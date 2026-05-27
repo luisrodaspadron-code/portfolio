@@ -10,7 +10,7 @@ export type PaletteAction = {
   label: string;
   detail: string;
   icon: UiIcon;
-  group: "Navigation" | "Actions" | "Holdings" | "Receipts" | "Ask Signal" | "Developer/Audit";
+  group: "Navigation" | "Actions" | "Holdings" | "Receipts" | "Ask Signal";
   shortcut?: string;
   run: () => void;
 };
@@ -52,9 +52,9 @@ export function CommandPalette({
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
               >
                 <div className="palette-head">
-                  <Dialog.Title>Command Center</Dialog.Title>
+                  <Dialog.Title>Search</Dialog.Title>
                   <Dialog.Close asChild>
-                    <button className="icon-button" aria-label="Close command center" title="Close command center">
+                    <button className="icon-button" aria-label="Close search" title="Close search">
                       <IconSlot icon={X} />
                     </button>
                   </Dialog.Close>
@@ -62,11 +62,11 @@ export function CommandPalette({
                 <Command>
                   <div className="palette-input">
                     <Search size={18} />
-                    <Command.Input placeholder="Search actions, setup, risks, or Ask Signal..." autoFocus />
+                    <Command.Input placeholder="Search screens, holdings, risks, or Ask Signal..." autoFocus />
                   </div>
                   <Command.List>
-                    <Command.Empty>No matching command.</Command.Empty>
-                    {(["Navigation", "Actions", "Holdings", "Receipts", "Ask Signal", "Developer/Audit"] as const).map((group) => {
+                    <Command.Empty>No matching result.</Command.Empty>
+                    {(["Navigation", "Actions", "Holdings", "Receipts", "Ask Signal"] as const).map((group) => {
                       const groupActions = actions.filter((action) => action.group === group);
                       if (!groupActions.length) return null;
                       return (

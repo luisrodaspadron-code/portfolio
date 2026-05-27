@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Sparkles, ShieldCheck, Hourglass, Ban, Eye } from "lucide-react";
 import type { AdvisorPacketAction } from "../../types";
 import { titleCase } from "../../lib/format";
-import { Badge, CommandButton, SignalPanel } from "../ui/Primitives";
+import { Badge, SignalPanel } from "../ui/Primitives";
 import { ScoreBreakdownBars, type ScoreComponent } from "../visuals/ScoreBreakdownBars";
 import { DataQualityPill } from "../data/DataQualityPill";
 
@@ -105,7 +105,6 @@ function totalScore(components: ScoreComponent[]): number {
 type Props = {
   candidates: AdvisorPacketAction[];
   onSelect?: (candidate: AdvisorPacketAction) => void;
-  onAsk?: (prompt: string) => void;
 };
 
 /**
@@ -113,7 +112,7 @@ type Props = {
  * breakdown for each. Pure visualization on top of the deterministic
  * candidate list — never re-ranks or invents new math.
  */
-export function OpportunityLab({ candidates, onSelect, onAsk }: Props) {
+export function OpportunityLab({ candidates, onSelect }: Props) {
   const lanes = useMemo(() => {
     const grouped: Record<Lane, AdvisorPacketAction[]> = {
       eligible: [],
@@ -207,20 +206,6 @@ export function OpportunityLab({ candidates, onSelect, onAsk }: Props) {
                           ) : null}
                         </div>
                         <p>{candidate.explanation}</p>
-                        {onAsk && (
-                          <footer>
-                            <CommandButton
-                              icon={Sparkles}
-                              variant="quiet"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onAsk(`Explain the ${candidate.symbol} candidate: why it is in the ${meta.label} lane, what would make it eligible, and how it would change concentration.`);
-                              }}
-                            >
-                              Ask Signal
-                            </CommandButton>
-                          </footer>
-                        )}
                       </motion.article>
                     );
                   })}

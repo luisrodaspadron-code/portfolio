@@ -125,7 +125,7 @@
   backdrop-filter: blur(22px);
   box-shadow: 0 18px 64px rgba(0, 0, 0, 0.24);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-3);
   align-items: center;
   padding: 8px;
@@ -135,7 +135,7 @@
 }
 
 .telemetry-search {
-  flex: 0 0 180px;
+  flex: 0 0 168px;
   min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -158,27 +158,23 @@
 }
 
 .telemetry-items {
-  order: 5;
-  flex: 1 0 100%;
+  order: 0;
+  flex: 1 1 260px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   min-width: 0;
 }
 
 .top-telemetry > .policy-selector-chip {
-  flex: 1 1 220px;
-  min-width: 180px;
-}
-
-.top-telemetry > .display-mode-toggle {
-  flex: 0 0 auto;
+  flex: 0 1 210px;
+  min-width: 160px;
 }
 
 .top-telemetry > .command-button {
-  order: 4;
-  flex: 0 1 390px;
-  max-width: 430px;
+  order: 0;
+  flex: 0 0 210px;
+  max-width: 240px;
   margin-left: auto;
 }
 
@@ -190,9 +186,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   min-width: 0;
 }
 
@@ -359,31 +355,6 @@
   line-height: 1.35;
 }
 
-.display-mode-toggle {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.display-mode-toggle button {
-  min-height: 32px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.display-mode-toggle button.active {
-  background: rgba(101, 255, 216, 0.12);
-  color: var(--mint);
-}
-
 .signal-skeleton {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -417,32 +388,6 @@
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
-}
-
-.display-mode-focus .what-changed-panel,
-.display-mode-focus .operating-grid,
-.display-mode-focus .decision-map-panel,
-.display-mode-focus .portfolio-impact-preview,
-.display-mode-focus .now-audit-drawer {
-  display: none !important;
-}
-
-.display-mode-focus .mission-control-grid {
-  min-height: 52vh;
-}
-
-.display-mode-presentation .mission-first-action,
-.display-mode-presentation .mission-decision-receipt {
-  padding: var(--space-5);
-}
-
-.display-mode-presentation .mission-control-command h1 {
-  font-size: clamp(1.4rem, 2.4vw, 2rem);
-}
-
-.display-mode-research .decision-map-panel,
-.display-mode-research .now-audit-drawer {
-  display: block;
 }
 
 .telemetry-popover-arrow {

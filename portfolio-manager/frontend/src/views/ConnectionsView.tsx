@@ -160,9 +160,9 @@ export function ConnectionsView({
   return (
     <section className="connections-view screen-enter">
       <SignalPanel className="connections-command">
-        <span>Secure local setup</span>
-        <h1>Connect AI and market data</h1>
-        <p>Keys stay encrypted in local app data and are never returned to the browser after save. OpenAI powers the senior-PM review and Ask Signal follow-ups.</p>
+        <span>Connections</span>
+        <h1>Data and AI sources</h1>
+        <p>Check provider health, masked keys, latest use, and source coverage from one clean place.</p>
         <div className="connection-summary">
           <Badge tone={openAiTone}>
             {openAiSummary}
@@ -213,9 +213,11 @@ export function ConnectionsView({
                         <p>
                           {isSec
                             ? "SEC EDGAR adds filing-derived fundamentals: revenue growth, gross margin, and debt-to-equity for covered stocks."
-                            : provider.description}
+                            : provider.provider === "openai"
+                              ? "Portfolio-level AI reviews and Ask Signal follow-ups."
+                              : provider.description}
                         </p>
-                        <small>
+                        <small className="provider-secrets">
                           {provider.fields.map((field) => (
                             <span key={field.key}>{field.configured ? field.masked_value : `${field.label} missing`}</span>
                           ))}
@@ -224,11 +226,11 @@ export function ConnectionsView({
                     </div>
                     <div className="provider-state">
                       <div>
-                        <span>Connection test</span>
+                        <span>Test</span>
                         <Badge tone={connectionTone(provider)}>{connectionLabel(provider)}</Badge>
                       </div>
                       <div>
-                        <span>Latest use</span>
+                        <span>Use</span>
                         <Badge tone={stateTone(provider.latest_use_state)}>{useLabel(provider)}</Badge>
                       </div>
                       <small>{recoveryMessage}</small>
@@ -311,91 +313,96 @@ export function ConnectionsView({
             </div>
           </div>
           <p className="ai-router-disclosure">
-            All keys stay encrypted in local app data. Cloud LLMs only receive a packet when you explicitly run the
-            advisor, ask Signal, or trigger the Deep Competition review — and routes flagged "Manual only" never run on
-            autopilot. The deterministic engine is the source of truth for caps, sizing, and risk gates.
+            All keys stay encrypted in local app data. Cloud LLMs only receive a compact packet when you run the
+            advisor or ask Signal. The deterministic engine remains the source of truth for caps, sizing, and risk gates.
           </p>
-          <div className="ai-router-editor">
-            {(["fast", "specialist", "leadPM", "deepCompetition"] as const).map((route) => (
-              <article key={route}>
-                <div>
-                  <strong>{route === "leadPM" ? "Lead PM" : route === "deepCompetition" ? "Deep competition" : titleCase(route)}</strong>
-                  <span>{routerDraft[route].role}</span>
-                </div>
-                <label>
-                  <span>Model</span>
-                  <input value={routerDraft[route].model} onChange={(event) => setRouteField(route, "model", event.target.value)} />
-                </label>
-                <label>
-                  <span>Reasoning</span>
-                  <select value={routerDraft[route].reasoningEffort} onChange={(event) => setRouteField(route, "reasoningEffort", event.target.value)}>
-                    <option value="minimal">Minimal</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="xhigh">Xhigh</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Tokens</span>
-                  <input
-                    type="number"
-                    min={200}
-                    max={8000}
-                    step={100}
-                    value={routerDraft[route].maxOutputTokens}
-                    onChange={(event) => setRouteField(route, "maxOutputTokens", event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>Timeout (ms)</span>
-                  <input
-                    type="number"
-                    min={1000}
-                    max={120000}
-                    step={500}
-                    value={routerDraft[route].timeoutMs ?? 45000}
-                    onChange={(event) => setRouteField(route, "timeoutMs", event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>Prompt version</span>
-                  <input
-                    value={routerDraft[route].promptVersion ?? ""}
-                    placeholder="signal-prime.prompt.v2"
-                    onChange={(event) => setRouteField(route, "promptVersion", event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>Purpose</span>
-                  <input
-                    value={routerDraft[route].purpose ?? ""}
-                    placeholder={route === "leadPM" ? "Final narrative review" : "Specialist input"}
-                    onChange={(event) => setRouteField(route, "purpose", event.target.value)}
-                  />
-                </label>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(routerDraft[route].stream)}
-                    onChange={(event) => setRouteField(route, "stream", event.target.checked)}
-                  />
-                  <span>Stream tokens (run console only — does not affect canonical decisions)</span>
-                </label>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(routerDraft[route].requiresManualRun)}
-                    onChange={(event) => setRouteField(route, "requiresManualRun", event.target.checked)}
-                  />
-                  <span>Manual only (skip on autopilot)</span>
-                </label>
-              </article>
-            ))}
-            <CommandButton icon={CheckCircle2} variant="secondary" disabled={busyProvider === "ai-router"} onClick={saveRouter}>
-              Save model router
-            </CommandButton>
-          </div>
+          <details className="advanced-router-disclosure">
+            <summary>
+              <span>Advanced model routing</span>
+              <Badge tone="neutral">Optional</Badge>
+            </summary>
+            <div className="ai-router-editor">
+              {(["fast", "specialist", "leadPM", "deepCompetition"] as const).map((route) => (
+                <article key={route}>
+                  <div>
+                    <strong>{route === "leadPM" ? "Lead PM" : route === "deepCompetition" ? "Deep review" : titleCase(route)}</strong>
+                    <span>{routerDraft[route].role}</span>
+                  </div>
+                  <label>
+                    <span>Model</span>
+                    <input value={routerDraft[route].model} onChange={(event) => setRouteField(route, "model", event.target.value)} />
+                  </label>
+                  <label>
+                    <span>Reasoning</span>
+                    <select value={routerDraft[route].reasoningEffort} onChange={(event) => setRouteField(route, "reasoningEffort", event.target.value)}>
+                      <option value="minimal">Minimal</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="xhigh">Xhigh</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Tokens</span>
+                    <input
+                      type="number"
+                      min={200}
+                      max={8000}
+                      step={100}
+                      value={routerDraft[route].maxOutputTokens}
+                      onChange={(event) => setRouteField(route, "maxOutputTokens", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Timeout (ms)</span>
+                    <input
+                      type="number"
+                      min={1000}
+                      max={120000}
+                      step={500}
+                      value={routerDraft[route].timeoutMs ?? 45000}
+                      onChange={(event) => setRouteField(route, "timeoutMs", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Prompt version</span>
+                    <input
+                      value={routerDraft[route].promptVersion ?? ""}
+                      placeholder="signal-prime.prompt.v2"
+                      onChange={(event) => setRouteField(route, "promptVersion", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Purpose</span>
+                    <input
+                      value={routerDraft[route].purpose ?? ""}
+                      placeholder={route === "leadPM" ? "Final narrative review" : "Specialist input"}
+                      onChange={(event) => setRouteField(route, "purpose", event.target.value)}
+                    />
+                  </label>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(routerDraft[route].stream)}
+                      onChange={(event) => setRouteField(route, "stream", event.target.checked)}
+                    />
+                    <span>Stream run-console summaries</span>
+                  </label>
+                  <label className="checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(routerDraft[route].requiresManualRun)}
+                      onChange={(event) => setRouteField(route, "requiresManualRun", event.target.checked)}
+                    />
+                    <span>Manual only</span>
+                  </label>
+                </article>
+              ))}
+              <CommandButton icon={CheckCircle2} variant="secondary" disabled={busyProvider === "ai-router"} onClick={saveRouter}>
+                Save model router
+              </CommandButton>
+            </div>
+          </details>
         </details>
       </SignalPanel>
 

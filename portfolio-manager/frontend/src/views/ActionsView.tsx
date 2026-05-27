@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { BrainCircuit, CheckCircle2, MessageCircle, ShieldAlert } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import type { AdvisorDecisionItem, Dashboard, Recommendation } from "../types";
 import { actionPriorityTone, recommendationLane } from "../lib/viewModels";
 import { money, pct, shortDateTime, titleCase } from "../lib/format";
@@ -113,11 +113,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
             <span>Action Brief</span>
             <h1>{canonicalFirst ? `${titleCase(canonicalFirst.action)} ${canonicalFirst.symbol}` : topAction ? `${topAction.decision} ${topAction.symbol}` : "No portfolio action needed yet"}</h1>
             <p>{packet.recommendedPriority.headline || advisorDecision?.portfolio_verdict || "Run the advisor to build an action brief."}</p>
-            <div className="inline-actions">
-              <CommandButton icon={MessageCircle} variant="primary" onClick={() => onAsk("Explain the latest portfolio decision and what I should do first.")}>
-                Ask Signal about this decision
-              </CommandButton>
-            </div>
           </div>
           {topAction && (
             <div className="action-weight-card">
@@ -140,9 +135,15 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           <ActionTimeline dashboard={dashboard} />
         </SignalPanel>
 
-        <ReviewChecklist />
+        <details className="review-checklist-disclosure">
+          <summary>
+            <span>Before acting</span>
+            <Badge tone="neutral">Checklist</Badge>
+          </summary>
+          <ReviewChecklist />
+        </details>
 
-        <details className="decision-receipt-drawer" open>
+        <details className="decision-receipt-drawer">
           <summary>
             <span>Decision receipt</span>
             <Badge tone={(receipt.hardGatesTripped?.length ?? 0) ? "watch" : "live"}>
@@ -277,49 +278,54 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
           </SignalPanel>
         </section>
 
-        <OpportunityLab
-          candidates={packetCandidates}
-          onAsk={onAsk}
-          onSelect={(item) => {
-            const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
-            const packetDetail = { addPlan: item.addPlan ?? undefined };
-            if (existing) {
+        <details className="opportunity-lab-disclosure">
+          <summary>
+            <span>Opportunity lab</span>
+            <Badge tone="neutral">{packetCandidates.length} candidates</Badge>
+          </summary>
+          <OpportunityLab
+            candidates={packetCandidates}
+            onSelect={(item) => {
+              const existing = advisorDecision?.opportunity_decisions.find((row) => row.symbol === item.symbol);
+              const packetDetail = { addPlan: item.addPlan ?? undefined };
+              if (existing) {
+                setSelectedDecision({
+                  ...existing,
+                  target_weight: item.targetWeight ?? existing.target_weight,
+                  current_weight: item.currentWeight ?? existing.current_weight,
+                  reason: item.explanation || existing.reason,
+                  reason_code: item.reasonCode || existing.reason_code,
+                  detail_payload: {
+                    ...(existing.detail_payload ?? {}),
+                    ...packetDetail,
+                  },
+                });
+                return;
+              }
               setSelectedDecision({
-                ...existing,
-                target_weight: item.targetWeight ?? existing.target_weight,
-                current_weight: item.currentWeight ?? existing.current_weight,
-                reason: item.explanation || existing.reason,
-                reason_code: item.reasonCode || existing.reason_code,
-                detail_payload: {
-                  ...(existing.detail_payload ?? {}),
-                  ...packetDetail,
-                },
+                id: 0,
+                decision_run_id: 0,
+                symbol: item.symbol,
+                item_type: "opportunity",
+                decision: item.action === "STAGGER_ENTRY" ? "Stagger Entry" : "Add",
+                plain_action: `${item.action} ${item.symbol}`,
+                reason: item.explanation,
+                target_weight: item.targetWeight ?? 0,
+                current_weight: item.currentWeight ?? 0,
+                confidence_label: item.reasonCode,
+                confidence_score: item.confidence ?? 0,
+                eligibility: "pass",
+                risk_check: item.blockers.join("; "),
+                quant_evidence: item.confidenceDrivers,
+                source_freshness: item.dataQuality?.freshness ?? "",
+                reason_code: item.reasonCode,
+                ai_commentary: "",
+                created_at: "",
+                detail_payload: packetDetail,
               });
-              return;
-            }
-            setSelectedDecision({
-              id: 0,
-              decision_run_id: 0,
-              symbol: item.symbol,
-              item_type: "opportunity",
-              decision: item.action === "STAGGER_ENTRY" ? "Stagger Entry" : "Add",
-              plain_action: `${item.action} ${item.symbol}`,
-              reason: item.explanation,
-              target_weight: item.targetWeight ?? 0,
-              current_weight: item.currentWeight ?? 0,
-              confidence_label: item.reasonCode,
-              confidence_score: item.confidence ?? 0,
-              eligibility: "pass",
-              risk_check: item.blockers.join("; "),
-              quant_evidence: item.confidenceDrivers,
-              source_freshness: item.dataQuality?.freshness ?? "",
-              reason_code: item.reasonCode,
-              ai_commentary: "",
-              created_at: "",
-              detail_payload: packetDetail,
-            });
-          }}
-        />
+            }}
+          />
+        </details>
 
         <DetailDrawer
           open={Boolean(selectedDecision)}
@@ -427,9 +433,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                 </div>
               </section>
               <div className="drawer-actions">
-                <CommandButton icon={selectedDecision.decision === "Avoid" ? ShieldAlert : CheckCircle2} variant={selectedDecision.decision === "Avoid" ? "danger" : "primary"}>
-                  Decision reviewed
-                </CommandButton>
                 <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk(`Explain the ${selectedDecision.symbol} ${selectedDecision.decision} decision.`)}>
                   Ask Signal
                 </CommandButton>
@@ -509,7 +512,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                   </button>
                 ))
               ) : (
-                <EmptyState title={`No ${lane.lane.toLowerCase()} items`} body="The robo flow will place ideas here when quant gates produce them." />
+                <EmptyState title={`No ${lane.lane.toLowerCase()} items`} body="Ideas appear here when deterministic gates produce them." />
               )}
             </div>
           </SignalPanel>
@@ -560,12 +563,6 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
               <p>{selected.ai_review?.reason ?? "No live AI critique attached to this item yet."}</p>
             </section>
             <div className="drawer-actions">
-              <CommandButton icon={selected.status === "fail" ? ShieldAlert : CheckCircle2} variant={selected.status === "fail" ? "danger" : "primary"}>
-                {selected.status === "fail" ? "Keep blocked" : "Mark reviewed"}
-              </CommandButton>
-              <CommandButton icon={BrainCircuit} variant="secondary">
-                Open memo
-              </CommandButton>
               <CommandButton icon={MessageCircle} variant="ghost" onClick={() => onAsk(`Explain the ${selected.symbol} ${selected.action} recommendation.`)}>
                 Ask Signal
               </CommandButton>

@@ -51,12 +51,6 @@ const SCREEN_PROMPTS: Record<string, string[]> = {
     "Why is the model routing configured this way?",
     "Where is data partial or stale?",
   ],
-  research: [
-    "Summarize the latest backtest evidence.",
-    "Which quant checks failed or need attention?",
-    "What research memos support the current decision?",
-    "How fresh is the factor and macro data?",
-  ],
   models: [
     "Which model is doing the heavy lifting and why?",
     "How does reasoning effort affect the decision receipt?",

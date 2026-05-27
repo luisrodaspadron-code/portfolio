@@ -55,8 +55,60 @@ export function DecisionReceiptCard({
     );
   }
 
+  if (compact) {
+    return (
+      <div className="decision-receipt-card compact">
+        <div className="decision-receipt-head">
+          <div>
+            <span>Decision receipt</span>
+            <strong>{receipt.firstAction ?? (first ? `${titleCase(first.action)} ${first.symbol}` : "No first action")}</strong>
+          </div>
+          <Badge tone={(receipt.hardGatesTripped?.length ?? 0) ? "watch" : "live"}>
+            {(receipt.hardGatesTripped?.length ?? 0) ? `${receipt.hardGatesTripped?.length} gates` : "Clear"}
+          </Badge>
+        </div>
+
+        {sizing && first?.action === "TRIM" && (
+          <div className="receipt-math-grid compact-summary">
+            <div>
+              <span>Weight</span>
+              <strong>
+                {pct(sizing.currentWeight)}{" -> "}{pct(sizing.targetWeight)}
+              </strong>
+            </div>
+            <div>
+              <span>Trim</span>
+              <strong>{money(sizing.sellValue)}</strong>
+            </div>
+            <div>
+              <span>Shares</span>
+              <strong>{number(sizing.wholeSharesCompliant)} whole</strong>
+              <small>Exact {sizing.exactShares.toFixed(4)}</small>
+            </div>
+            {sizing.priceUsed > 0 && (
+              <div>
+                <span>Price</span>
+                <strong>{money(sizing.priceUsed)}</strong>
+                {sizing.priceTimestamp && <small>{shortDateTime(sizing.priceTimestamp)}</small>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(receipt.dataLimitations?.length ?? 0) > 0 && (
+          <div className="decision-receipt-limits compact">
+            <span>Data notes</span>
+            <p>{receipt.dataLimitations?.[0]}</p>
+          </div>
+        )}
+
+        <p className="decision-receipt-footer compact">No order placed.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className={`decision-receipt-card ${compact ? "compact" : ""}`}>
+    <div className="decision-receipt-card">
       <div className="decision-receipt-head">
         <div>
           <span>Decision receipt</span>

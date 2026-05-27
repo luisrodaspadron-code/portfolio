@@ -7,9 +7,7 @@ import type { AdvisorPacketAction, Dashboard, Position } from "../types";
 import { money, number, pct, signedMoney, signedPct, titleCase } from "../lib/format";
 import { DataGrid } from "../components/data/DataGrid";
 import { PortfolioTrendChart } from "../components/visuals/PortfolioTrendChart";
-import { PortfolioConstellation } from "../components/visuals/PortfolioConstellation";
 import { PortfolioMap } from "../components/visuals/PortfolioMap";
-import { portfolioConstellationNodes } from "../lib/viewModels";
 import { Badge, CommandButton, EmptyState, SignalPanel } from "../components/ui/Primitives";
 import { HoldingDetailDrawer } from "../components/portfolio/HoldingDetailDrawer";
 
@@ -261,8 +259,8 @@ export function PortfolioView({
   const importPanel = (
     <SignalPanel className={`import-command ${hasHoldings ? "update-mode" : ""}`} testId="import-wizard">
       <div className="import-copy">
-        <span>Real-money source of truth</span>
-        <h1>{hasHoldings ? "Update holdings" : "Real holdings command center"}</h1>
+        <span>Portfolio source</span>
+        <h1>{hasHoldings ? "Update holdings" : "Import holdings"}</h1>
         <p>Paste or drop holdings. Headerless rows are okay: Symbol, shares, average cost.</p>
       </div>
       <div className={`dropzone ${dropzone.isDragActive ? "active" : ""}`} {...dropzone.getRootProps()}>
@@ -289,7 +287,7 @@ export function PortfolioView({
           Template
         </a>
         <CommandButton icon={CheckCircle2} variant="primary" disabled={busy} data-testid="import-holdings-submit" onClick={submit}>
-          {busy ? "Importing" : "Import real holdings"}
+          {busy ? "Importing" : "Import holdings"}
         </CommandButton>
       </div>
     </SignalPanel>
@@ -341,7 +339,7 @@ export function PortfolioView({
 
       <SignalPanel className="holdings-grid-panel portfolio-primary-table">
         <div className="panel-label-row">
-          <span>Holdings command table</span>
+          <span>Holdings</span>
           <Badge tone={hasHoldings ? "live" : "watch"}>{hasHoldings && real ? `${filteredPositions.length} of ${real.positions.length}` : "empty"}</Badge>
         </div>
         {hasHoldings && real ? (
@@ -401,7 +399,14 @@ export function PortfolioView({
       </section>
 
       {hasHoldings && (
-        <SignalPanel className="trend-panel">
+        <details className="portfolio-secondary-disclosure">
+          <summary>
+            <span>Portfolio trend</span>
+            <Badge tone={hasTrendHistory ? (dashboard.portfolio_trend.day_change >= 0 ? "live" : "fail") : "watch"}>
+              {hasTrendHistory ? "History ready" : "Needs history"}
+            </Badge>
+          </summary>
+          <SignalPanel className="trend-panel">
           <div className="panel-label-row">
             <span>Portfolio worth over time</span>
             <Badge tone={dashboard.portfolio_trend.day_change >= 0 ? "live" : "fail"}>{titleCase(dashboard.portfolio_trend.granularity)}</Badge>
@@ -418,7 +423,8 @@ export function PortfolioView({
           </div>
           <PortfolioTrendChart trend={dashboard.portfolio_trend} />
           {hasTrendHistory ? <p className="panel-note">{dashboard.portfolio_trend.source_note}</p> : null}
-        </SignalPanel>
+          </SignalPanel>
+        </details>
       )}
 
       {hasHoldings && real && (
@@ -435,15 +441,6 @@ export function PortfolioView({
       )}
 
       <section className="portfolio-detail-grid">
-        {hasHoldings && (
-          <SignalPanel className="allocation-panel constellation-panel">
-            <div className="panel-label-row">
-              <span>Risk / signal map</span>
-              <Badge tone={topPosition && topPosition.weight > Number(dashboard.risk_rules.max_single_stock_weight ?? 0.08) ? "fail" : "live"}>Weighted</Badge>
-            </div>
-            <PortfolioConstellation nodes={portfolioConstellationNodes(dashboard)} onImport={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
-          </SignalPanel>
-        )}
         <SignalPanel className="allocation-panel">
           <div className="panel-label-row">
             <span>Allocation</span>

@@ -128,6 +128,71 @@ export function AdvisoryTicket({
     }
   };
 
+  if (compact) {
+    return (
+      <article
+        className="advisory-ticket compact"
+        data-action={action.action.toLowerCase()}
+        aria-label={`Advisory ticket summary for ${action.symbol}`}
+      >
+        <header className="advisory-ticket-head">
+          <div className="advisory-ticket-eyebrow">
+            <span>Action ticket</span>
+            <Badge tone={isTrim ? "watch" : isAdd ? "live" : "neutral"}>{titleCase(action.action)}</Badge>
+          </div>
+          <div className="advisory-ticket-title">
+            <strong>{action.symbol}</strong>
+            <em>{action.reasonCode ? titleCase(action.reasonCode) : "deterministic review"}</em>
+          </div>
+          <p className="advisory-ticket-reason">{action.explanation}</p>
+        </header>
+
+        {isTrim && trim ? (
+          <section className="advisory-ticket-grid compact-summary">
+            <ActionRow label="Current" value={`${pct(currentWeight)} · ${money(trim.currentValue)}`} />
+            <ActionRow label="Target" value={pct(action.targetWeight ?? trim.policyThreshold ?? targetWeight)} />
+            <ActionRow label="Estimated trim" value={money(trim.estimatedSellValue)} />
+            <ActionRow
+              label="Whole-share compliant"
+              value={`${number(wholeCompliant)} sh`}
+              hint={`Exact ${number(trim.sharesToSellExact)} sh`}
+            />
+            <ActionRow
+              label="Post-weight"
+              value={pct(trim.estimatedPostWeightCompliant ?? trim.estimatedPostWeight)}
+            />
+            {trim.priceUsed > 0 && (
+              <ActionRow
+                label="Price"
+                value={money(trim.priceUsed)}
+                hint={trim.priceTimestamp ? shortDateTime(trim.priceTimestamp) : undefined}
+              />
+            )}
+          </section>
+        ) : isAdd && add ? (
+          <section className="advisory-ticket-grid compact-summary">
+            <ActionRow label="Initial" value={pct(add.initialWeight)} />
+            <ActionRow label="Target" value={pct(add.targetWeight)} />
+            <ActionRow label="Tranches" value={`${add.trancheCount}`} />
+            <ActionRow label="Risk budget" value={pct(add.riskBudgetImpact)} />
+          </section>
+        ) : (
+          <section className="advisory-ticket-grid compact-summary">
+            <ActionRow label="Action" value={titleCase(action.action)} />
+            <ActionRow label="Current weight" value={pct(currentWeight)} />
+          </section>
+        )}
+
+        <div className="advisory-ticket-compact-foot">
+          {action.dataQuality && (
+            <DataQualityPill freshness={action.dataQuality.freshness} compact />
+          )}
+          <span>No order placed</span>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article
       className={`advisory-ticket ${compact ? "compact" : ""}`.trim()}
