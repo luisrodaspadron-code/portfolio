@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Sparkles, ShieldCheck, Hourglass, Ban, Eye } from "lucide-react";
+import { ArrowRight, Sparkles, ShieldCheck, Hourglass, Ban, Eye } from "lucide-react";
 import type { AdvisorPacketAction } from "../../types";
 import { titleCase } from "../../lib/format";
 import { Badge, SignalPanel } from "../ui/Primitives";
@@ -172,20 +172,7 @@ export function OpportunityLab({ candidates, onSelect }: Props) {
                     const components = buildScoreComponents(candidate);
                     const score = totalScore(components);
                     return (
-                      <article
-                        key={candidate.symbol}
-                        className="opportunity-card"
-                        onClick={onSelect ? () => onSelect(candidate) : undefined}
-                        onKeyDown={(event) => {
-                          if (!onSelect) return;
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            onSelect(candidate);
-                          }
-                        }}
-                        role={onSelect ? "button" : undefined}
-                        tabIndex={onSelect ? 0 : undefined}
-                      >
+                      <article key={candidate.symbol} className="opportunity-card">
                         <header>
                           <strong>{candidate.symbol}</strong>
                           <Badge tone={meta.tone}>{titleCase(candidate.action.replace(/_/g, " "))}</Badge>
@@ -202,6 +189,17 @@ export function OpportunityLab({ candidates, onSelect }: Props) {
                           ) : null}
                         </div>
                         <p>{candidate.explanation}</p>
+                        {onSelect && (
+                          <button
+                            type="button"
+                            className="opportunity-card-action"
+                            onClick={() => onSelect(candidate)}
+                            aria-label={`Open ${candidate.symbol} candidate detail`}
+                          >
+                            Open detail
+                            <ArrowRight size={14} aria-hidden="true" />
+                          </button>
+                        )}
                       </article>
                     );
                   })}

@@ -99,20 +99,23 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
   const latestPriceProviderFailed = latestProvider?.status === "failed" && latestProvider.provider === dashboard.data_freshness.preferred_price_source;
   const auxiliaryProviderWarning = latestProvider?.status === "failed" && !latestPriceProviderFailed;
   const dataMode = dashboard.data_freshness.provider_mode;
+  const hasConfiguredPriceSource = dashboard.data_freshness.preferred_price_source !== "sample";
   const dataValue = setup.dataLive
     ? latestPriceProviderFailed
       ? "Stale"
       : dataMode === "partial"
         ? "Partial"
         : "Recent"
-    : dashboard.data_freshness.price_bars
-      ? "Sample"
-      : "Needs data";
+    : hasConfiguredPriceSource && ["recent", "stale", "partial"].includes(dataMode)
+      ? titleCase(dataMode)
+      : dashboard.data_freshness.price_bars
+        ? "Sample"
+        : "Needs data";
   const dataTone = setup.dataLive
     ? latestPriceProviderFailed || dataMode === "partial"
       ? "attention"
       : "good"
-    : dashboard.data_freshness.price_bars
+    : dashboard.data_freshness.price_bars || hasConfiguredPriceSource
       ? "attention"
       : "neutral";
   const largestPosition = dashboard.real_portfolio?.positions.reduce(
@@ -135,8 +138,8 @@ export function telemetryState(dashboard: Dashboard): TelemetryItem[] {
       label: "Data",
       value: dataValue,
       tone: dataTone,
-      detail: setup.dataLive
-        ? `${dashboard.data_freshness.live_price_symbols} priced symbols from ${titleCase(dashboard.data_freshness.preferred_price_source)}${auxiliaryProviderWarning ? `. ${titleCase(latestProvider?.provider)} needs attention.` : ""}`
+      detail: setup.dataLive || hasConfiguredPriceSource
+        ? `${dashboard.data_freshness.live_price_symbols || dashboard.data_freshness.sample_price_symbols} priced symbols from ${titleCase(dashboard.data_freshness.preferred_price_source)}${auxiliaryProviderWarning ? `. ${titleCase(latestProvider?.provider)} needs attention.` : ""}`
         : "Using deterministic local sample data until a market provider is connected.",
       actionLabel: "Open source matrix",
     },

@@ -1,7 +1,7 @@
 import { useDropzone } from "react-dropzone";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { CheckCircle2, Download, Import, PieChart, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Download, Import, ShieldAlert } from "lucide-react";
 import { importHoldings } from "../api";
 import type { AdvisorPacketAction, Dashboard, Position } from "../types";
 import { money, number, pct, signedMoney, signedPct, titleCase } from "../lib/format";
@@ -254,7 +254,7 @@ export function PortfolioView({
     <SignalPanel className={`import-command ${hasHoldings ? "update-mode" : ""}`} testId="import-wizard">
       <div className="import-copy">
         <span>Portfolio source</span>
-        <h1>{hasHoldings ? "Update holdings" : "Import holdings"}</h1>
+        <h2>{hasHoldings ? "Update holdings" : "Import holdings"}</h2>
         <p>Paste or drop holdings. Headerless rows are okay: Symbol, shares, average cost.</p>
       </div>
       <div className={`dropzone ${dropzone.isDragActive ? "active" : ""}`} {...dropzone.getRootProps()}>
@@ -289,15 +289,13 @@ export function PortfolioView({
 
   return (
     <section className="portfolio-view screen-enter">
-      {hasHoldings ? (
-        <details className="update-holdings-drawer">
-          <summary>
-            <span>Update real holdings</span>
-            <Badge tone="neutral">{real?.positions.length ?? 0} current</Badge>
-          </summary>
-          {importPanel}
-        </details>
-      ) : importPanel}
+      <header className="screen-heading portfolio-heading">
+        <span>Portfolio</span>
+        <h1>Allocation, exposure, and data quality</h1>
+        <p>Start with the map, then use the table for exact values, decisions, and source status.</p>
+      </header>
+
+      {!hasHoldings && importPanel}
 
       {(preview.rows.length > 0 || importWarnings.length > 0) && (
         <SignalPanel className="preview-panel">
@@ -329,6 +327,70 @@ export function PortfolioView({
             </div>
           )}
         </SignalPanel>
+      )}
+
+      <section className="portfolio-metrics">
+        <SignalPanel className="metric-tile">
+          <span>Total tracked</span>
+          <strong>{hasHoldings && real ? money(real.total_value) : "Not connected"}</strong>
+          <p>{hasHoldings && real ? `${real.positions.length} holdings · ${money(real.cash)} cash` : "Import positions required"}</p>
+        </SignalPanel>
+        <SignalPanel className="metric-tile">
+          <span>Largest position</span>
+          <strong>{topPosition ? `${topPosition.symbol} ${pct(topPosition.weight)}` : "Waiting"}</strong>
+          <p>{topPosition ? `${money(topPosition.market_value)} · ${topPosition.sector}` : "No real positions yet"}</p>
+        </SignalPanel>
+        <SignalPanel className="metric-tile">
+          <span>Risk state</span>
+          <strong>{hasHoldings && real ? titleCase(dashboard.advisor_packet.portfolioRisk.severity) : "Waiting"}</strong>
+          <p>
+            {hasHoldings && real
+              ? `${dashboard.advisor_packet.portfolioRisk.issueCount} current issue${dashboard.advisor_packet.portfolioRisk.issueCount === 1 ? "" : "s"}`
+              : "No real positions yet"}
+          </p>
+        </SignalPanel>
+        <SignalPanel className="metric-tile">
+          <span>Data mode</span>
+          <strong>{titleCase(dashboard.data_freshness.provider_mode)}</strong>
+          <p>{missingPrices ? `${missingPrices} holdings need data refresh` : `${titleCase(dashboard.data_freshness.preferred_price_source)} source`}</p>
+        </SignalPanel>
+      </section>
+
+      {hasHoldings && real && (
+        <section className="portfolio-overview-grid">
+          <SignalPanel className="portfolio-map-panel" testId="portfolio-map-panel">
+            <PortfolioMap
+              portfolio={real}
+              advisorPacket={dashboard.advisor_packet ?? null}
+              onSelect={(symbol) => {
+                const target = real.positions.find((position) => position.symbol === symbol);
+                if (target) setSelectedPosition(target);
+              }}
+            />
+          </SignalPanel>
+          <SignalPanel className="allocation-panel portfolio-risk-summary">
+            <div className="panel-label-row">
+              <span>Allocation and risk notes</span>
+              <ShieldAlert size={16} />
+            </div>
+            <div className="allocation-stack">
+              {real.positions.slice(0, 6).map((position) => (
+                <div key={position.symbol}>
+                  <span>{position.symbol}</span>
+                  <i style={{ width: `${Math.min(100, position.weight * 100)}%` }} />
+                  <strong>{pct(position.weight)}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="risk-note-stack compact">
+              {real.stress.warnings.length ? (
+                real.stress.warnings.slice(0, 3).map((warning) => <div key={warning}>{warning}</div>)
+              ) : (
+                <div>No active hard-rule breach at this snapshot.</div>
+              )}
+            </div>
+          </SignalPanel>
+        </section>
       )}
 
       <SignalPanel className="holdings-grid-panel portfolio-primary-table">
@@ -365,32 +427,15 @@ export function PortfolioView({
         )}
       </SignalPanel>
 
-      <section className="portfolio-metrics">
-        <SignalPanel className="metric-tile">
-          <span>Total tracked</span>
-          <strong>{hasHoldings && real ? money(real.total_value) : "Not connected"}</strong>
-          <p>{hasHoldings && real ? `${real.positions.length} holdings · ${money(real.cash)} cash` : "Import positions required"}</p>
-        </SignalPanel>
-        <SignalPanel className="metric-tile">
-          <span>Largest position</span>
-          <strong>{topPosition ? `${topPosition.symbol} ${pct(topPosition.weight)}` : "Waiting"}</strong>
-          <p>{topPosition ? `${money(topPosition.market_value)} · ${topPosition.sector}` : "No real positions yet"}</p>
-        </SignalPanel>
-        <SignalPanel className="metric-tile">
-          <span>Risk state</span>
-          <strong>{hasHoldings && real ? titleCase(dashboard.advisor_packet.portfolioRisk.severity) : "Waiting"}</strong>
-          <p>
-            {hasHoldings && real
-              ? `${dashboard.advisor_packet.portfolioRisk.issueCount} current issue${dashboard.advisor_packet.portfolioRisk.issueCount === 1 ? "" : "s"}`
-              : "No real positions yet"}
-          </p>
-        </SignalPanel>
-        <SignalPanel className="metric-tile">
-          <span>Data mode</span>
-          <strong>{titleCase(dashboard.data_freshness.provider_mode)}</strong>
-          <p>{missingPrices ? `${missingPrices} holdings need data refresh` : `${titleCase(dashboard.data_freshness.preferred_price_source)} source`}</p>
-        </SignalPanel>
-      </section>
+      {hasHoldings && (
+        <details className="update-holdings-drawer portfolio-secondary-disclosure">
+          <summary>
+            <span>Update holdings</span>
+            <Badge tone="neutral">{real?.positions.length ?? 0} current</Badge>
+          </summary>
+          {importPanel}
+        </details>
+      )}
 
       {hasHoldings && (
         <details className="portfolio-secondary-disclosure">
@@ -418,55 +463,6 @@ export function PortfolioView({
           <PortfolioTrendChart trend={dashboard.portfolio_trend} />
           {hasTrendHistory ? <p className="panel-note">{dashboard.portfolio_trend.source_note}</p> : null}
           </SignalPanel>
-        </details>
-      )}
-
-      {hasHoldings && real && (
-        <details className="portfolio-visuals-disclosure">
-          <summary>
-            <span>Allocation and risk details</span>
-            <Badge tone="neutral">Optional</Badge>
-          </summary>
-          <SignalPanel className="portfolio-map-panel" testId="portfolio-map-panel">
-            <PortfolioMap
-              portfolio={real}
-              advisorPacket={dashboard.advisor_packet ?? null}
-              onSelect={(symbol) => {
-                const target = real.positions.find((position) => position.symbol === symbol);
-                if (target) setSelectedPosition(target);
-              }}
-            />
-          </SignalPanel>
-          <section className="portfolio-detail-grid">
-            <SignalPanel className="allocation-panel">
-              <div className="panel-label-row">
-                <span>Allocation</span>
-                <PieChart size={16} />
-              </div>
-              <div className="allocation-stack">
-                {real.positions.slice(0, 10).map((position) => (
-                  <div key={position.symbol}>
-                    <span>{position.symbol}</span>
-                    <i style={{ width: `${Math.min(100, position.weight * 100)}%` }} />
-                    <strong>{pct(position.weight)}</strong>
-                  </div>
-                ))}
-              </div>
-            </SignalPanel>
-            <SignalPanel className="allocation-panel">
-              <div className="panel-label-row">
-                <span>Risk notes</span>
-                <ShieldAlert size={16} />
-              </div>
-              <div className="risk-note-stack">
-                {real.stress.warnings.length ? (
-                  real.stress.warnings.map((warning) => <div key={warning}>{warning}</div>)
-                ) : (
-                  <div>No active hard-rule breach at this snapshot.</div>
-                )}
-              </div>
-            </SignalPanel>
-          </section>
         </details>
       )}
 

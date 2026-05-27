@@ -82,6 +82,14 @@ export function ConnectionsView({
   const openAiTone = openai ? connectionTone(openai) : "watch";
   const workflowAttention = dashboard.connections.providers.filter((provider) => ["failed", "format_error", "rate_limited"].includes(provider.latest_use_state ?? "")).length;
   const needsAttention = dashboard.connections.summary.missing + workflowAttention;
+  const sourceMatrix = dashboard.advisor_packet?.sourceMatrix ?? null;
+  const sourceEntries = sourceMatrix?.matrix ?? {};
+  const sourceHighlights = [
+    ["prices", "Prices"],
+    ["fundamentals", "Fundamentals"],
+    ["macro", "Macro"],
+    ["ai", "AI route"],
+  ] as const;
 
   useEffect(() => {
     setRouterDraft(dashboard.ai_status.model_router);
@@ -190,6 +198,33 @@ export function ConnectionsView({
           </Badge>
         </div>
       </SignalPanel>
+
+      <section className="source-health-strip">
+        {sourceHighlights.map(([key, label]) => {
+          const entry = sourceEntries[key];
+          return (
+            <SignalPanel className="source-health-card" key={key}>
+              <span>{label}</span>
+              <strong>{entry ? titleCase(entry.freshness) : "Waiting"}</strong>
+              <p>
+                {entry
+                  ? `${titleCase(entry.provider)} · ${entry.recordCount ? `${number(entry.recordCount)} records` : titleCase(entry.coverage)}`
+                  : "Run advisor to populate provenance."}
+              </p>
+            </SignalPanel>
+          );
+        })}
+      </section>
+
+      <details className="source-matrix-disclosure">
+        <summary>
+          <span>Full source matrix</span>
+          <Badge tone={sourceMatrix ? "live" : "watch"}>
+            {sourceMatrix ? `${Object.keys(sourceEntries).length} sources` : "Waiting"}
+          </Badge>
+        </summary>
+        <SourceMatrixPanel matrix={sourceMatrix} />
+      </details>
 
       <div className="connection-groups">
         {groups.map((group) => {
@@ -420,16 +455,6 @@ export function ConnectionsView({
           </details>
         </details>
       </SignalPanel>
-
-      <details className="source-matrix-disclosure">
-        <summary>
-          <span>Source matrix</span>
-          <Badge tone={dashboard.advisor_packet?.sourceMatrix ? "live" : "watch"}>
-            {dashboard.advisor_packet?.sourceMatrix ? "Available" : "Waiting"}
-          </Badge>
-        </summary>
-        <SourceMatrixPanel matrix={dashboard.advisor_packet?.sourceMatrix ?? null} />
-      </details>
 
       <DetailDrawer
         open={Boolean(openProvider)}

@@ -103,13 +103,17 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
     const canonicalTrimPlan = canonicalFirst?.trimPlan as NonNullable<AdvisorDecisionItem["detail_payload"]>["trimPlan"] | undefined;
     const displayTrimPlan = canonicalTrimPlan ?? topTrimPlan;
     const trimGuidance = displayTrimPlan?.executionGuidance;
+    const heroCopy =
+      canonicalFirst?.action === "TRIM" && displayTrimPlan
+        ? `Estimated ${money(displayTrimPlan.estimatedSellValue)} trim to move ${canonicalFirst.symbol} from ${pct(canonicalFirst.currentWeight ?? 0)} toward ${pct(canonicalFirst.targetWeight)}.`
+        : packet.recommendedPriority.headline || advisorDecision?.portfolio_verdict || "Run the advisor to build an action brief.";
     return (
       <section className="actions-view actions-redesign screen-enter">
         <SignalPanel className="actions-hero-v2">
           <div>
             <span>Action plan</span>
             <h1>{canonicalFirst ? `${titleCase(canonicalFirst.action)} ${canonicalFirst.symbol}` : topAction ? `${topAction.decision} ${topAction.symbol}` : "No action needed"}</h1>
-            <p>{packet.recommendedPriority.headline || advisorDecision?.portfolio_verdict || "Run the advisor to build an action brief."}</p>
+            <p>{heroCopy}</p>
           </div>
           {topAction && (
             <div className="action-weight-card">
@@ -128,6 +132,24 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
             </div>
           )}
         </SignalPanel>
+
+        <section className="action-context-grid" aria-label="Action context">
+          <SignalPanel className="action-context-card">
+            <span>Gate status</span>
+            <strong>{receipt.hardGatesTripped?.length ?? 0} gates tripped</strong>
+            <p>{receipt.riskIncreasingActionsBlocked?.[0] ?? "No risk-increasing block in the latest receipt."}</p>
+          </SignalPanel>
+          <SignalPanel className="action-context-card">
+            <span>Execution style</span>
+            <strong>{trimGuidance ? titleCase(trimGuidance.recommendedStyle.replace(/_/g, " ")) : "Review plan"}</strong>
+            <p>{trimGuidance ? `Limit floor ${money(trimGuidance.suggestedLimitPrice)} · rerun below ${money(trimGuidance.stopReviewBelow)}` : "Sizing appears after a trim/add packet is created."}</p>
+          </SignalPanel>
+          <SignalPanel className="action-context-card">
+            <span>Data used</span>
+            <strong>{canonicalFirst?.dataQuality ? titleCase(canonicalFirst.dataQuality.freshness) : "Pending"}</strong>
+            <p>{canonicalFirst?.dataQuality ? `${titleCase(canonicalFirst.dataQuality.provider)} · ${titleCase(canonicalFirst.dataQuality.coverage)}` : "Run the advisor to refresh source receipts."}</p>
+          </SignalPanel>
+        </section>
 
         <SignalPanel className="action-timeline-panel">
           <div className="panel-label-row">
@@ -478,7 +500,7 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
             <div className="insight-card-stack">
               {lane.items.length ? (
                 lane.items.slice(0, 8).map((item) => (
-                  <button className="insight-action-card" key={`${lane.lane}-${item.id}-${item.symbol}`} onClick={() => setSelected(item)}>
+                  <article className="insight-action-card" key={`${lane.lane}-${item.id}-${item.symbol}`}>
                     <div className="insight-action-top">
                       <Badge tone={laneTone(lane.lane)}>{item.action}</Badge>
                       <strong>{item.symbol}</strong>
@@ -508,7 +530,15 @@ export function ActionsView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk:
                         <dd>{item.ai_review?.reason ? "Attached" : "Pending"}</dd>
                       </div>
                     </dl>
-                  </button>
+                    <button
+                      type="button"
+                      className="insight-action-open"
+                      onClick={() => setSelected(item)}
+                      aria-label={`Open ${item.symbol} action detail`}
+                    >
+                      Open detail
+                    </button>
+                  </article>
                 ))
               ) : (
                 <EmptyState title={`No ${lane.lane.toLowerCase()} items`} body="Ideas appear here when deterministic gates produce them." />

@@ -1606,16 +1606,13 @@ a svg {
   border: 1px solid rgba(255, 255, 255, 0.06);
   color: inherit;
   text-align: left;
-  cursor: pointer;
   transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
 }
 
-.opportunity-card:hover,
-.opportunity-card:focus-visible {
+.opportunity-card:hover {
   border-color: rgba(60, 220, 160, 0.4);
   background: linear-gradient(160deg, rgba(60, 220, 160, 0.08), rgba(255, 255, 255, 0.02));
   transform: translateY(-1px);
-  outline: none;
 }
 
 .opportunity-card header {
@@ -1650,9 +1647,27 @@ a svg {
   color: rgba(255, 255, 255, 0.78);
 }
 
-.opportunity-card footer {
+.opportunity-card-action {
+  justify-self: end;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+  padding: 0 12px;
+  font-size: 0.76rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.opportunity-card-action:hover,
+.opportunity-card-action:focus-visible {
+  border-color: rgba(60, 220, 160, 0.42);
+  background: rgba(60, 220, 160, 0.12);
+  outline: none;
 }
 
 .opportunity-lane.lane-eligible { border-color: rgba(60, 220, 160, 0.22); }
@@ -2019,6 +2034,51 @@ a svg {
 
 .mission-pill.calm i { background: rgba(255, 255, 255, 0.35); }
 
+.mission-context-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.mission-context-strip article {
+  min-height: 92px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.mission-context-strip span,
+.source-health-card span,
+.action-context-card span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mission-context-strip strong,
+.source-health-card strong,
+.action-context-card strong {
+  color: var(--ink);
+  font-size: 1.08rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-context-strip p,
+.source-health-card p,
+.action-context-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 /* First-action + receipt grid */
 .mission-control-grid {
   display: grid;
@@ -2219,6 +2279,8 @@ a svg {
 
 .source-matrix-table-wrap {
   overflow-x: auto;
+  max-height: 440px;
+  overflow-y: auto;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
 }

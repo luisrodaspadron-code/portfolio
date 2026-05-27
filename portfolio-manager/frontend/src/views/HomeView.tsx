@@ -72,13 +72,12 @@ export function HomeView({
     }
   }, [currentHash, currentPacket]);
   const real = dashboard.real_portfolio;
-  const canonicalHeadline = dashboard.advisor_packet?.recommendedPriority?.headline;
   const canonicalReceipt = dashboard.advisor_packet?.decisionReceipt;
   const sizing = receiptMath(dashboard);
   const topRisk = dashboard.advisor_trace.top_risks[0];
   const nextRun = dashboard.scheduler.next_run_at;
   const answerBody = sizing
-    ? `${sizing.symbol} is ${pct(sizing.currentWeight)} of the portfolio versus the ${pct(sizing.targetWeight)} policy target. Repair concentration before considering new exposure.`
+    ? "Sized from portfolio value, policy thresholds, and reference price. Actions includes staged limit guidance."
     : decision.body;
 
   const selectedPolicy = pickSelectedPolicy(dashboard);
@@ -87,11 +86,16 @@ export function HomeView({
   const allowedCount = canonicalReceipt?.riskReducingActionsAllowed?.length ?? 0;
   const policyLabel = selectedPolicy?.name ?? dashboard.policy?.selectedPolicy?.name ?? titleCase(selectedPolicy?.preset ?? "balanced");
   const policyPreset = selectedPolicy?.preset ?? dashboard.policy?.selectedPolicy?.preset ?? "balanced";
-  const commandCopy = canonicalReceipt?.summary
-    ?? canonicalHeadline
-    ?? (firstAction
-      ? `${titleCase(firstAction.action)} ${firstAction.symbol} before increasing single-stock exposure.`
-      : "Run the advisor to generate the first priority.");
+  const commandCopy = firstAction?.action === "TRIM"
+    ? "Repair concentration before adding risk"
+    : firstAction?.action === "WAIT_FOR_DATA"
+      ? "Refresh data before sizing new action"
+      : firstAction
+        ? "Review the first deterministic action"
+        : "Run the advisor to generate the first priority";
+  const dataSourceLabel = titleCase(dashboard.data_freshness.preferred_price_source || dashboard.data_freshness.provider_mode);
+  const sourceModeLabel = titleCase(dashboard.data_freshness.provider_mode);
+  const nextReviewLabel = nextRun ? shortDateTime(nextRun) : "Manual run anytime";
 
   return (
     <section className="now-view now-decision-hub screen-enter mission-control">
@@ -108,16 +112,39 @@ export function HomeView({
         <div className="mission-control-pills" role="list">
           <span className={`mission-pill ${blockedCount ? "blocked" : "calm"}`} role="listitem">
             <i />
-            <strong>Risk-increasing trades {blockedCount ? "blocked" : "open"}</strong>
+            <strong>{blockedCount ? "Blocked exposure" : "No active block"}</strong>
             {blockedCount > 0 && <em>{blockedCount}</em>}
           </span>
           <span className={`mission-pill ${allowedCount ? "allowed" : "calm"}`} role="listitem">
             <i />
-            <strong>Risk-reducing trades {allowedCount ? "allowed" : "no candidates"}</strong>
+            <strong>{allowedCount ? "Risk-reducing path" : "No risk-reducing path"}</strong>
             {allowedCount > 0 && <em>{allowedCount}</em>}
           </span>
         </div>
       </header>
+
+      <section className="mission-context-strip" aria-label="Current portfolio context">
+        <article>
+          <span>Portfolio</span>
+          <strong>{real ? money(real.total_value) : "Not loaded"}</strong>
+          <p>{real ? `${real.positions.length} holdings · ${money(real.cash)} cash` : "Import holdings to start"}</p>
+        </article>
+        <article>
+          <span>Risk driver</span>
+          <strong>{firstAction ? firstAction.symbol : "Pending"}</strong>
+          <p>{firstAction ? `${pct(firstAction.currentWeight ?? 0)} current · ${pct(firstAction.targetWeight ?? 0)} target` : "No packet action yet"}</p>
+        </article>
+        <article>
+          <span>Data</span>
+          <strong>{sourceModeLabel}</strong>
+          <p>{dataSourceLabel} · {dashboard.data_freshness.live_price_symbols || dashboard.data_freshness.sample_price_symbols} priced symbols</p>
+        </article>
+        <article>
+          <span>Next review</span>
+          <strong>{nextReviewLabel}</strong>
+          <p>{dashboard.advisor_packet?.workflowAudit?.status ? titleCase(dashboard.advisor_packet.workflowAudit.status) : "Workflow ready"}</p>
+        </article>
+      </section>
 
       <SignalPanel className="mission-action-card" testId="advisor-brief">
         {firstAction ? (
@@ -125,7 +152,7 @@ export function HomeView({
             <div className="mission-action-main">
               <span>Recommended action</span>
               <h2>{titleCase(firstAction.action)} {firstAction.symbol}</h2>
-              <p>{firstAction.explanation}</p>
+              <p>{answerBody}</p>
             </div>
             {sizing && (
               <div className="mission-action-metrics">
@@ -138,8 +165,8 @@ export function HomeView({
             )}
             <div className="mission-action-side">
               <button type="button" onClick={() => onNavigate("actions")}>Open action plan</button>
-              {topRisk && <p>{topRisk.title}</p>}
-              <small>{nextRun ? `Next review ${shortDateTime(nextRun)}` : "Run again anytime."}</small>
+              {topRisk && <p>Primary risk: {topRisk.title}</p>}
+              <small>Quote guardrails and staged sizing live in Actions.</small>
             </div>
           </>
         ) : (

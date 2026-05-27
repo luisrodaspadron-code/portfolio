@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { Dashboard } from "../types";
 import { money, pct, titleCase } from "../lib/format";
 import { Badge, EmptyState, SignalPanel } from "../components/ui/Primitives";
-import { SelectedPolicyCard, SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
+import { SingleStockLadder, pickSelectedPolicy } from "../components/policy/SelectedPolicyCard";
 import { RiskBlockerCard, deriveRiskBlockers } from "../components/risk/RiskBlockerCard";
 
 function riskBadgeLabel(tone: string) {
@@ -50,19 +50,29 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
     firstAction?.action === "TRIM"
       ? `${firstAction.symbol} is ${pct(firstAction.currentWeight ?? 0)} versus the ${pct(firstAction.targetWeight)} cap. Create the trim plan before adding new exposure.`
       : primaryFix;
+  const concentrationBody = topPosition
+    ? topPosition.weight > maxSingleStock
+      ? `${pct(topPosition.weight - maxSingleStock)} over the buy-block threshold. Use Actions for the trim ticket and quote rules.`
+      : "Largest position remains inside the current buy-block threshold."
+    : "No position weights yet.";
+  const sectorBody = sectorBreaches[0]
+    ? `${sectorBreaches[0].rule} is above policy. New same-sector exposure stays blocked until this clears.`
+    : unknownWeight > 0
+      ? `${pct(unknownWeight)} is intentionally labeled Unknown.`
+      : "Sector caps use enriched metadata where available.";
   const riskCards = [
     {
       icon: ShieldAlert,
       label: "Concentration",
       value: topPosition ? `${topPosition.symbol} at ${pct(topPosition.weight)}` : "Waiting",
-      body: singleBreaches[0]?.message ?? (topPosition ? primaryFix : "No position weights yet."),
+      body: singleBreaches.length ? concentrationBody : (topPosition ? concentrationBody : "No position weights yet."),
       tone: singleBreaches.length ? "danger" : hasHoldings ? "good" : "attention"
     },
     {
       icon: Layers3,
       label: "Sector pressure",
       value: sectors[0] ? `${sectors[0][0]} ${pct(sectors[0][1])}` : "Waiting",
-      body: sectorBreaches[0]?.message ?? (unknownWeight > 0 ? `${pct(unknownWeight)} is intentionally labeled Unknown.` : "Sector caps use enriched metadata where available."),
+      body: sectorBody,
       tone: sectorBreaches.length ? "danger" : unknownWeight > 0 ? "attention" : hasHoldings ? "good" : "attention"
     },
     {
@@ -119,102 +129,104 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
         ))}
       </section>
 
-      {selectedPolicy && (
-        <details className="risk-policy-disclosure">
-          <summary>
-            <span>Policy thresholds</span>
-            <Badge tone="neutral">{selectedPolicy.name}</Badge>
-          </summary>
-          <SelectedPolicyCard
-            policy={selectedPolicy}
-            footnote="Policy thresholds drive the risk states shown on this page."
-          />
-          {topPosition && (
-            <SignalPanel className="risk-radar-panel">
-              <div className="panel-label-row">
-                <span>{topPosition.symbol} versus single-stock policy</span>
-                <Badge tone={topPosition.weight >= selectedPolicy.singleStock.hardBuyBlock ? "fail" : topPosition.weight >= selectedPolicy.singleStock.warning ? "watch" : "live"}>
-                  {pct(topPosition.weight)}
-                </Badge>
-              </div>
+      {selectedPolicy && topPosition && (
+        <section className="risk-policy-surface compact-policy-row">
+          <SignalPanel className="risk-policy-compact">
+            <div className="panel-label-row">
+              <span>Policy lens</span>
+              <Badge tone="neutral">{selectedPolicy.name}</Badge>
+            </div>
+            <div className="risk-policy-mini-grid">
+              <div><span>Target</span><strong>{pct(selectedPolicy.singleStock.target)}</strong></div>
+              <div><span>Warning</span><strong>{pct(selectedPolicy.singleStock.warning)}</strong></div>
+              <div><span>Block</span><strong>{pct(selectedPolicy.singleStock.hardBuyBlock)}</strong></div>
+              <div><span>Sector cap</span><strong>{pct(selectedPolicy.sector.hardCap)}</strong></div>
+            </div>
+            <p>These thresholds explain why META is first and why risk-increasing exposure is blocked.</p>
+          </SignalPanel>
+          <SignalPanel className="exposure-stack-panel risk-top-exposure-card">
+            <div className="panel-label-row">
+              <span>Largest exposure</span>
+              <Badge tone={topPosition.weight >= selectedPolicy.singleStock.hardBuyBlock ? "fail" : topPosition.weight >= selectedPolicy.singleStock.warning ? "watch" : "live"}>
+                {pct(topPosition.weight)}
+              </Badge>
+            </div>
+            <div className="risk-largest-summary">
+              <strong>{topPosition.symbol}</strong>
+              <span>{money(topPosition.market_value)} · {topPosition.sector}</span>
+              <p>{pct(Math.max(0, topPosition.weight - maxSingleStock))} over the current {pct(maxSingleStock)} buy-block threshold.</p>
+            </div>
+            <details className="inline-threshold-disclosure">
+              <summary>Show threshold ladder</summary>
               <SingleStockLadder
                 policy={selectedPolicy.singleStock}
                 currentWeight={topPosition.weight}
                 symbol={topPosition.symbol}
               />
-            </SignalPanel>
-          )}
-        </details>
-      )}
-
-      <details className="risk-detail-disclosure">
-        <summary>
-          <span>Exposure details</span>
-          <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "watch" : "neutral"}>
-            {topPositions.length ? `${topPositions.length} holdings` : "Waiting"}
-          </Badge>
-        </summary>
-        <section className="risk-workbench">
-          <SignalPanel className="exposure-stack-panel">
-            <div className="panel-label-row">
-              <span>Top exposures</span>
-              <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "fail" : topPositions.length ? "live" : "watch"}>{topPositions.length ? `${topPositions.length} holdings` : "Waiting"}</Badge>
-            </div>
-            <div className="exposure-stack">
-              {topPositions.length ? (
-                topPositions.map((position) => (
-                  <div key={position.symbol} className={position.weight > maxSingleStock ? "over" : ""}>
-                    <div>
-                      <strong>{position.symbol}</strong>
-                      <span>
-                        {money(position.market_value)} · {position.sector}
-                        {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over ${pct(maxSingleStock)} cap` : ""}
-                      </span>
-                    </div>
-                    <i style={{ "--weight": Math.min(100, position.weight * 100) } as CSSProperties} />
-                    <b>{pct(position.weight)}</b>
-                  </div>
-                ))
-              ) : (
-                <EmptyState title="No concentration data" body="Import holdings to see position weight." />
-              )}
-            </div>
-          </SignalPanel>
-
-          <SignalPanel className="sector-stack-panel">
-            <div className="panel-label-row">
-              <span>Sector and theme pressure</span>
-              <Badge tone={sectors[0]?.[1] > 0.3 ? "fail" : sectors.length ? "live" : "watch"}>{sectors.length ? `${sectors.length} groups` : "Waiting"}</Badge>
-            </div>
-            <div className="sector-stack">
-              {sectors.length ? (
-                sectors.slice(0, 7).map(([sector, weight]) => (
-                  <div key={sector} className={sector === "Unknown" || sector === "Unclassified ETF" ? "unknown" : ""}>
-                    <span>{sector}</span>
-                    <i style={{ "--weight": Math.min(100, weight * 100) } as CSSProperties} />
-                    <strong>{pct(weight)}</strong>
-                  </div>
-                ))
-              ) : (
-                <EmptyState title="No sector map yet" body="Import holdings to see theme pressure." />
-              )}
-            </div>
-            {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal Prime labels missing metadata instead of inventing sector exposure.</p>}
+            </details>
           </SignalPanel>
         </section>
-      </details>
+      )}
 
-      <details className="risk-blockers-disclosure">
-        <summary>
+      <section className="risk-workbench">
+        <SignalPanel className="exposure-stack-panel">
+          <div className="panel-label-row">
+            <span>Top exposures</span>
+            <Badge tone={topPosition && topPosition.weight > maxSingleStock ? "fail" : topPositions.length ? "live" : "watch"}>{topPositions.length ? `${topPositions.length} holdings` : "Waiting"}</Badge>
+          </div>
+          <div className="exposure-stack">
+            {topPositions.length ? (
+              topPositions.map((position) => (
+                <div key={position.symbol} className={position.weight > maxSingleStock ? "over" : ""}>
+                  <div>
+                    <strong>{position.symbol}</strong>
+                    <span>
+                      {money(position.market_value)} · {position.sector}
+                      {position.weight > maxSingleStock ? ` · ${pct(position.weight - maxSingleStock)} over ${pct(maxSingleStock)} cap` : ""}
+                    </span>
+                  </div>
+                  <i style={{ "--weight": Math.min(100, position.weight * 100) } as CSSProperties} />
+                  <b>{pct(position.weight)}</b>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No concentration data" body="Import holdings to see position weight." />
+            )}
+          </div>
+        </SignalPanel>
+
+        <SignalPanel className="sector-stack-panel">
+          <div className="panel-label-row">
+            <span>Sector and theme pressure</span>
+            <Badge tone={sectors[0]?.[1] > 0.3 ? "fail" : sectors.length ? "live" : "watch"}>{sectors.length ? `${sectors.length} groups` : "Waiting"}</Badge>
+          </div>
+          <div className="sector-stack">
+            {sectors.length ? (
+              sectors.slice(0, 7).map(([sector, weight]) => (
+                <div key={sector} className={sector === "Unknown" || sector === "Unclassified ETF" ? "unknown" : ""}>
+                  <span>{sector}</span>
+                  <i style={{ "--weight": Math.min(100, weight * 100) } as CSSProperties} />
+                  <strong>{pct(weight)}</strong>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No sector map yet" body="Import holdings to see theme pressure." />
+            )}
+          </div>
+          {unknownWeight > 0 && <p className="visual-explainer">Unknown is intentional. Signal Prime labels missing metadata instead of inventing sector exposure.</p>}
+        </SignalPanel>
+      </section>
+
+      <SignalPanel className="risk-blockers-panel" testId="risk-blockers-panel">
+        <div className="panel-label-row">
           <span>Blockers · what clears each one</span>
           <Badge tone={blockers.length ? "watch" : "pass"}>
             {blockers.length ? `${blockers.length} active` : "All clear"}
           </Badge>
-        </summary>
-        <SignalPanel className="risk-blockers-panel" testId="risk-blockers-panel">
+        </div>
           {blockers.length ? (
             <div className="risk-blocker-grid">
-              {blockers.slice(0, 8).map((blocker) => (
+              {blockers.slice(0, 4).map((blocker) => (
                 <RiskBlockerCard key={blocker.id} blocker={blocker} onAsk={onAsk} />
               ))}
             </div>
@@ -229,8 +241,7 @@ export function RiskView({ dashboard, onAsk }: { dashboard: Dashboard; onAsk: (q
               {blocked.length} candidate ideas are not eligible right now. They surface again when data and risk gates clear.
             </p>
           )}
-        </SignalPanel>
-      </details>
+      </SignalPanel>
 
     </section>
   );
